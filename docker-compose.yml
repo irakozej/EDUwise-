@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: eduwise
+      POSTGRES_PASSWORD: eduwise
+      POSTGRES_DB: eduwise
+    ports:
+      - "5433:5432"
+    volumes:
+      - eduwise_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: eduwise_redis
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    container_name: eduwise_backend
+    environment:
+      ENV: dev
+      DATABASE_URL: postgresql+psycopg://eduwise:eduwise@db:5432/eduwise
+      JWT_SECRET: "dev_secret_change_me"
+      JWT_ACCESS_MINUTES: "30"
+      JWT_REFRESH_DAYS: "14"
+      CORS_ORIGINS: "http://localhost:5173"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  eduwise_pgdata:
