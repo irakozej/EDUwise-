@@ -1,0 +1,95 @@
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+.env
+.env.*
+.venv/
+venv/
+pip-wheel-metadata/
+coverage/
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+############################
+# Alembic
+############################
+alembic/versions/__pycache__/
+
+############################
+# ML Models
+############################
+*.pkl
+*.joblib
+*.model
+ml/models/
+ml/*.pkl
+
+############################
+# Jupyter
+############################
+.ipynb_checkpoints/
+
+############################
+# Node / React
+############################
+frontend/node_modules/
+frontend/.next/
+frontend/build/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+frontend/.cache/
+
+############################
+# Docker
+############################
+*.pid
+*.seed
+*.out
+*.err
+docker-compose.override.yml
+
+############################
+# MacOS
+############################
+.DS_Store
+
+############################
+# VSCode
+############################
+.vscode/
+
+############################
+# IDE
+############################
+.idea/
+
+############################
+# Database
+############################
+*.sqlite3
+*.db
+
+############################
+# Logs
+############################
+logs/
+*.log
+
+############################
+# System Files
+############################
+Thumbs.db
