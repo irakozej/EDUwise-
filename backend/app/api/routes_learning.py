@@ -183,6 +183,19 @@ def update_progress(
     if not lesson:
         raise HTTPException(404, "Lesson not found")
 
+    # ✅ Phase 2C.2: Enforce enrollment for the course owning this lesson
+    module = db.get(Module, lesson.module_id)
+    if not module:
+        raise HTTPException(500, "Module not found for lesson")
+
+    enrolled = db.query(Enrollment).filter(
+        Enrollment.student_id == user.id,
+        Enrollment.course_id == module.course_id,
+        Enrollment.status == "active",
+    ).first()
+    if not enrolled:
+        raise HTTPException(403, "Student not enrolled in this course")
+
     row = db.query(LessonProgress).filter(
         LessonProgress.student_id == user.id,
         LessonProgress.lesson_id == lesson_id
