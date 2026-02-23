@@ -26,10 +26,15 @@ services:
       JWT_ACCESS_MINUTES: "30"
       JWT_REFRESH_DAYS: "14"
       CORS_ORIGINS: "http://localhost:5173"
+      # Optional (already defaulted in code, but explicit is nice)
+      RISK_TRAIN_DATA_PATH: /app/data/student-mat.csv
+      RISK_MODEL_PATH: /app/app/ml/models/risk_model.joblib
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      # Mount training dataset into container (read-only)
+      - ./data/student-mat.csv:/app/data/student-mat.csv:ro
     depends_on:
       - db
       - redis
