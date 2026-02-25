@@ -87,7 +87,7 @@ export default function Login() {
           {/* Left: marketing / value */}
           <div className="hidden lg:block">
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Welcome back 👋
+              Welcome back to EduWise Student Portal 
             </h1>
             <p className="mt-3 text-slate-600 leading-relaxed">
               Track progress, attempt quizzes, and get AI-powered learning recommendations
