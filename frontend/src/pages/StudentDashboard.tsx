@@ -7,7 +7,11 @@ type DashboardData = {
   enrollments_active: number;
   lessons_total: number;
   progress: { avg_progress_pct: number; completed_progress_rows: number };
-  quizzes: { published: number; attempts_total: number; avg_score_pct: number | null };
+  quizzes: {
+    published: number;
+    attempts_total: number;
+    avg_score_pct: number | null;
+  };
   events: { total: number; by_type: Record<string, number> };
 };
 
@@ -36,52 +40,153 @@ type RecommendationsData = {
   recommendations: Recommendation[];
 };
 
-function StatCard({
-  label,
-  value,
-  sub,
+type Course = {
+  id: number;
+  title: string;
+  description?: string | null;
+  teacher_id?: number;
+};
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function Card({
+  children,
+  className,
 }: {
-  label: string;
-  value: string | number;
-  sub?: string;
+  children: React.ReactNode;
+  className?: string;
 }) {
   return (
     <div
-      style={{
-        border: "1px solid #e6e6e6",
-        borderRadius: 14,
-        padding: 16,
-        background: "#fff",
-        boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
-      }}
+      className={classNames(
+        "rounded-2xl border border-zinc-200 bg-white shadow-sm",
+        className
+      )}
     >
-      <div style={{ fontSize: 12, opacity: 0.7 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{sub}</div>}
+      {children}
     </div>
   );
 }
 
-function Badge({ text, tone }: { text: string; tone: "green" | "yellow" | "red" | "gray" }) {
-  const bg =
+function CardHeader({
+  title,
+  subtitle,
+  right,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 p-5">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-zinc-500">{title}</div>
+        {subtitle ? (
+          <div className="mt-1 text-xs text-zinc-500">{subtitle}</div>
+        ) : null}
+      </div>
+      {right ? <div className="shrink-0">{right}</div> : null}
+    </div>
+  );
+}
+
+function StatValue({
+  value,
+  sub,
+}: {
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div className="px-5 pb-5">
+      <div className="text-3xl font-semibold tracking-tight text-zinc-900">
+        {value}
+      </div>
+      {sub ? <div className="mt-1 text-sm text-zinc-500">{sub}</div> : null}
+    </div>
+  );
+}
+
+function Badge({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "green" | "yellow" | "red" | "gray";
+}) {
+  const cls =
     tone === "green"
-      ? "#e9f8ef"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
       : tone === "yellow"
-      ? "#fff7e6"
+      ? "bg-amber-50 text-amber-700 ring-amber-100"
       : tone === "red"
-      ? "#ffecec"
-      : "#f3f4f6";
-  const fg =
-    tone === "green"
-      ? "#16794c"
-      : tone === "yellow"
-      ? "#8a5b00"
-      : tone === "red"
-      ? "#b42318"
-      : "#374151";
+      ? "bg-rose-50 text-rose-700 ring-rose-100"
+      : "bg-zinc-100 text-zinc-700 ring-zinc-200";
 
   return (
-    <span style={{ background: bg, color: fg, padding: "6px 10px", borderRadius: 999, fontSize: 12 }}>
+    <span
+      className={classNames(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1",
+        cls
+      )}
+    >
+      {text}
+    </span>
+  );
+}
+
+function SkeletonLine({ w = "w-full" }: { w?: string }) {
+  return (
+    <div
+      className={classNames(
+        "h-3 rounded bg-zinc-100 animate-pulse",
+        w
+      )}
+    />
+  );
+}
+
+function PrimaryButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 active:scale-[0.99]"
+    >
+      {children}
+    </button>
+  );
+}
+
+function LinkButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50"
+    >
+      {children}
+    </a>
+  );
+}
+
+function TitleTag({ text }: { text: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
       {text}
     </span>
   );
@@ -91,6 +196,8 @@ export default function StudentDashboard() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [recs, setRecs] = useState<RecommendationsData | null>(null);
+
+  const [coursesById, setCoursesById] = useState<Record<number, Course>>({});
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
@@ -111,8 +218,30 @@ export default function StudentDashboard() {
       setDashboard(d.data);
       setRisk(r.data);
       setRecs(rec.data);
+
+      // ---- Active enrollments: show course titles from /api/v1/courses
+      const courseIds =
+        rec.data?.course_ids && rec.data.course_ids.length > 0
+          ? rec.data.course_ids
+          : Array.from(
+              new Set(
+                (rec.data?.recommendations || [])
+                  .map((x) => x.course_id)
+                  .filter((x): x is number => typeof x === "number")
+              )
+            );
+
+      if (courseIds.length > 0) {
+        const allCourses = await api.get<Course[]>("/api/v1/courses");
+        const map: Record<number, Course> = {};
+        for (const c of allCourses.data) map[c.id] = c;
+        setCoursesById(map);
+      } else {
+        setCoursesById({});
+      }
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || "Failed to load data";
+      const msg =
+        err?.response?.data?.detail || err?.message || "Failed to load data";
       setError(msg);
     } finally {
       setLoading(false);
@@ -149,16 +278,56 @@ export default function StudentDashboard() {
     return "Low risk";
   })();
 
+  const enrolledCourseIds = useMemo(() => {
+    if (!recs) return [];
+    if (recs.course_ids && recs.course_ids.length > 0) return recs.course_ids;
+
+    const ids = Array.from(
+      new Set(
+        (recs.recommendations || [])
+          .map((x) => x.course_id)
+          .filter((x): x is number => typeof x === "number")
+      )
+    );
+    return ids;
+  }, [recs]);
+
+  const enrolledCourses = useMemo(() => {
+    return enrolledCourseIds
+      .map((id) => coursesById[id])
+      .filter((c): c is Course => !!c);
+  }, [enrolledCourseIds, coursesById]);
+
+  const avgProgressPct =
+    dashboard?.progress?.avg_progress_pct ?? (loading ? null : 0);
+
+  const quizAvg =
+    dashboard?.quizzes?.avg_score_pct !== null &&
+    dashboard?.quizzes?.avg_score_pct !== undefined
+      ? `${dashboard.quizzes.avg_score_pct}%`
+      : loading
+      ? "…"
+      : "—";
+
+  const riskPct = risk ? `${Math.round(risk.risk_score * 100)}%` : loading ? "…" : "—";
+
   return (
-    <div style={{ background: "#fafafa", minHeight: "100vh" }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px", fontFamily: "system-ui" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 28 }}>Student Dashboard</h1>
-            <div style={{ marginTop: 6, opacity: 0.7, fontSize: 13 }}>
+    <div className="min-h-screen bg-zinc-50">
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        {/* Header */}
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">
+              Student Dashboard
+            </h1>
+            <div className="mt-1 text-sm text-zinc-500">
               {dashboard?.student?.full_name ? (
                 <>
-                  {dashboard.student.full_name} • {dashboard.student.email}
+                  <span className="font-medium text-zinc-700">
+                    {dashboard.student.full_name}
+                  </span>{" "}
+                  <span className="text-zinc-400">•</span>{" "}
+                  <span>{dashboard.student.email}</span>
                 </>
               ) : (
                 "Your learning overview"
@@ -166,202 +335,246 @@ export default function StudentDashboard() {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={loadAll} style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd" }}>
-              Refresh
-            </button>
-            <button
-              onClick={logout}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                background: "#fff",
-              }}
-            >
-              Logout
-            </button>
+          <div className="flex gap-2">
+            <PrimaryButton onClick={loadAll}>Refresh</PrimaryButton>
+            <PrimaryButton onClick={logout}>Logout</PrimaryButton>
           </div>
         </header>
 
-        {error && (
-          <div
-            style={{
-              marginTop: 14,
-              background: "#ffecec",
-              border: "1px solid #ffd0d0",
-              padding: 12,
-              borderRadius: 12,
-              color: "#b42318",
-            }}
-          >
-            <b>❌ {error}</b>
-            <div style={{ marginTop: 6, fontSize: 13, color: "#7a271a" }}>
+        {/* Error banner */}
+        {error ? (
+          <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
+            <div className="font-semibold">❌ {error}</div>
+            <div className="mt-1 text-sm text-rose-700">
               If this says “Not authenticated”, go back to the login page and login again.
             </div>
           </div>
-        )}
+        ) : null}
 
-        <div style={{ marginTop: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-            <StatCard
-              label="Active enrollments"
-              value={dashboard ? dashboard.enrollments_active : loading ? "…" : 0}
-              sub="Courses you are enrolled in"
+        {/* KPI grid */}
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Active Enrollments */}
+          <Card>
+            <CardHeader
+              title="Active enrollments"
+              subtitle="Courses you are enrolled in"
             />
-            <StatCard
-              label="Average progress"
-              value={
-                dashboard
-                  ? `${dashboard.progress.avg_progress_pct}%`
-                  : loading
-                  ? "…"
-                  : "0%"
-              }
-              sub={`${dashboard?.progress.completed_progress_rows ?? 0} lessons completed`}
-            />
-            <StatCard
-              label="Quiz average"
-              value={
-                dashboard?.quizzes?.avg_score_pct !== null && dashboard?.quizzes?.avg_score_pct !== undefined
-                  ? `${dashboard.quizzes.avg_score_pct}%`
-                  : loading
-                  ? "…"
-                  : "—"
-              }
-              sub={`${dashboard?.quizzes?.attempts_total ?? 0} attempts`}
-            />
-            <div
-              style={{
-                border: "1px solid #e6e6e6",
-                borderRadius: 14,
-                padding: 16,
-                background: "#fff",
-                boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Risk</div>
-                <Badge text={riskLabel} tone={riskTone} />
+            <div className="px-5 pb-5">
+              <div className="text-3xl font-semibold tracking-tight text-zinc-900">
+                {dashboard ? dashboard.enrollments_active : loading ? "…" : 0}
               </div>
-              <div style={{ fontSize: 28, fontWeight: 700, marginTop: 6 }}>
-                {risk ? `${Math.round(risk.risk_score * 100)}%` : loading ? "…" : "—"}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
-                Based on performance + engagement signals
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <section style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 12 }}>
-          <div
-            style={{
-              border: "1px solid #e6e6e6",
-              borderRadius: 14,
-              padding: 16,
-              background: "#fff",
-              boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
-            }}
-          >
-            <h2 style={{ margin: 0, fontSize: 16 }}>Recommended next steps</h2>
-            <div style={{ marginTop: 8, opacity: 0.7, fontSize: 13 }}>
-              Recommendations are based only on your <b>enrolled courses</b>.
-            </div>
-
-            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-              {loading && <div style={{ opacity: 0.7 }}>Loading recommendations…</div>}
-
-              {!loading && recs?.recommendations?.length === 0 && (
-                <div style={{ opacity: 0.7 }}>No recommendations yet. Try opening a lesson or updating progress.</div>
-              )}
-
-              {recs?.recommendations?.slice(0, 6).map((r, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    border: "1px solid #efefef",
-                    borderRadius: 12,
-                    padding: 12,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 10,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 650 }}>{r.title}</div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
-                      {r.reason || "Recommended based on your learning signals"}
-                      {r.topic ? ` • topic: ${r.topic}` : ""}
-                      {r.difficulty ? ` • difficulty: ${r.difficulty}` : ""}
-                      {r.format ? ` • format: ${r.format}` : ""}
-                    </div>
+              <div className="mt-3">
+                {loading ? (
+                  <div className="space-y-2">
+                    <SkeletonLine />
+                    <SkeletonLine w="w-2/3" />
                   </div>
-
-                  {r.url ? (
-                    <a
-                      href={r.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        whiteSpace: "nowrap",
-                        alignSelf: "center",
-                        textDecoration: "none",
-                        border: "1px solid #ddd",
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        background: "#fff",
-                      }}
-                    >
-                      Open
-                    </a>
-                  ) : (
-                    <span style={{ opacity: 0.5, alignSelf: "center" }}>—</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #e6e6e6",
-              borderRadius: 14,
-              padding: 16,
-              background: "#fff",
-              boxShadow: "0 1px 8px rgba(0,0,0,0.04)",
-            }}
-          >
-            <h2 style={{ margin: 0, fontSize: 16 }}>Activity</h2>
-
-            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-              <StatCard label="Lessons total" value={dashboard ? dashboard.lessons_total : loading ? "…" : 0} />
-              <StatCard label="Events tracked" value={dashboard ? dashboard.events.total : loading ? "…" : 0} />
-
-              <div style={{ borderTop: "1px solid #eee", marginTop: 6, paddingTop: 10 }}>
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>Events breakdown</div>
-                {loading && <div style={{ opacity: 0.7 }}>Loading…</div>}
-                {!loading && dashboard && (
-                  <div style={{ display: "grid", gap: 6 }}>
-                    {Object.entries(dashboard.events.by_type || {}).map(([k, v]) => (
-                      <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                        <span style={{ opacity: 0.8 }}>{k}</span>
-                        <span style={{ fontWeight: 650 }}>{v}</span>
-                      </div>
+                ) : enrolledCourses.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {enrolledCourses.slice(0, 6).map((c) => (
+                      <TitleTag key={c.id} text={c.title} />
                     ))}
-                    {Object.keys(dashboard.events.by_type || {}).length === 0 && (
-                      <div style={{ opacity: 0.7, fontSize: 13 }}>No events yet.</div>
-                    )}
+                    {enrolledCourses.length > 6 ? (
+                      <span className="text-xs text-zinc-500">
+                        +{enrolledCourses.length - 6} more
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">
+                    No enrolled courses found yet.
+                    <div className="mt-1 text-xs text-zinc-400">
+                      Enroll in a course to see recommendations and progress here.
+                    </div>
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        </section>
+          </Card>
 
-        <footer style={{ marginTop: 18, opacity: 0.6, fontSize: 12 }}>
-          EduWise • Student view
-        </footer>
+          {/* Average progress */}
+          <Card>
+            <CardHeader title="Average progress" />
+            <StatValue
+              value={
+                avgProgressPct === null
+                  ? "…"
+                  : `${Math.max(0, Math.min(100, avgProgressPct))}%`
+              }
+              sub={`${dashboard?.progress?.completed_progress_rows ?? 0} lessons completed`}
+            />
+          </Card>
+
+          {/* Quiz average */}
+          <Card>
+            <CardHeader title="Quiz average" />
+            <StatValue
+              value={quizAvg}
+              sub={`${dashboard?.quizzes?.attempts_total ?? 0} attempts`}
+            />
+          </Card>
+
+          {/* Risk */}
+          <Card>
+            <div className="flex items-start justify-between gap-3 p-5">
+              <div className="text-sm font-medium text-zinc-500">Risk</div>
+              <Badge text={riskLabel} tone={riskTone} />
+            </div>
+            <div className="px-5 pb-5">
+              <div className="text-3xl font-semibold tracking-tight text-zinc-900">
+                {riskPct}
+              </div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Based on performance + engagement signals
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Main sections */}
+        <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+          {/* Recommendations */}
+          <Card>
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight text-zinc-900">
+                    Recommended next steps
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Recommendations are based only on your{" "}
+                    <span className="font-medium text-zinc-700">enrolled courses</span>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {loading ? (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <SkeletonLine />
+                      <div className="mt-2 space-y-2">
+                        <SkeletonLine w="w-5/6" />
+                        <SkeletonLine w="w-2/3" />
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <SkeletonLine w="w-4/6" />
+                      <div className="mt-2 space-y-2">
+                        <SkeletonLine />
+                        <SkeletonLine w="w-1/2" />
+                      </div>
+                    </div>
+                  </div>
+                ) : recs?.recommendations?.length ? (
+                  recs.recommendations.slice(0, 6).map((r, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold text-zinc-900">
+                          {r.title}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                          {r.topic ? <TitleTag text={`topic: ${r.topic}`} /> : null}
+                          {r.difficulty ? (
+                            <TitleTag text={`difficulty: ${r.difficulty}`} />
+                          ) : null}
+                          {r.format ? <TitleTag text={`format: ${r.format}`} /> : null}
+                        </div>
+
+                        <div className="mt-2 text-sm text-zinc-500">
+                          {r.reason || "Recommended based on your learning signals"}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0">
+                        {r.url ? (
+                          <LinkButton href={r.url}>Open</LinkButton>
+                        ) : (
+                          <span className="text-sm text-zinc-400">No link</span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
+                    No recommendations yet.
+                    <div className="mt-1 text-xs text-zinc-400">
+                      Try enrolling in a course, opening lessons, updating progress, or attempting a quiz.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          {/* Activity */}
+          <Card>
+            <div className="p-5">
+              <h2 className="text-lg font-semibold tracking-tight text-zinc-900">
+                Activity
+              </h2>
+
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-medium text-zinc-500">Lessons total</div>
+                  <div className="mt-1 text-2xl font-semibold text-zinc-900">
+                    {dashboard ? dashboard.lessons_total : loading ? "…" : 0}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-medium text-zinc-500">Events tracked</div>
+                  <div className="mt-1 text-2xl font-semibold text-zinc-900">
+                    {dashboard ? dashboard.events.total : loading ? "…" : 0}
+                  </div>
+
+                  <div className="mt-4 border-t border-zinc-100 pt-3">
+                    <div className="text-xs font-medium text-zinc-500">
+                      Events breakdown
+                    </div>
+
+                    <div className="mt-2 space-y-2">
+                      {loading ? (
+                        <div className="space-y-2">
+                          <SkeletonLine />
+                          <SkeletonLine w="w-2/3" />
+                        </div>
+                      ) : dashboard ? (
+                        Object.keys(dashboard.events.by_type || {}).length ? (
+                          Object.entries(dashboard.events.by_type || {}).map(([k, v]) => (
+                            <div
+                              key={k}
+                              className="flex items-center justify-between text-sm"
+                            >
+                              <span className="text-zinc-600">{k}</span>
+                              <span className="font-semibold text-zinc-900">{v}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm text-zinc-500">No events yet.</div>
+                        )
+                      ) : (
+                        <div className="text-sm text-zinc-500">No data.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tiny explanation for supervisor demo */}
+              <div className="mt-4 text-xs text-zinc-400">
+                Tip: generate events by opening lessons, updating progress, and attempting quizzes.
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <footer className="mt-8 text-xs text-zinc-400">EduWise • Student view</footer>
       </div>
     </div>
   );

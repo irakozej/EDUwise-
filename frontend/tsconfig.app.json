@@ -8,6 +8,12 @@
     "types": ["vite/client"],
     "skipLibCheck": true,
 
+    /* ✅ Add alias support for shadcn + clean imports */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
