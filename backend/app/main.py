@@ -11,6 +11,7 @@ from app.api.routes_analytics import router as analytics_router
 from app.api.routes_student_dashboard import router as student_dashboard_router
 from app.api.routes_ml import router as ml_router
 from app.api.routes_recommendations import router as recommendations_router
+from app.api.routes_teacher import router as teacher_router
 
 app = FastAPI(title="EduWise API", version="1.0.0")
 
@@ -31,3 +32,4 @@ app.include_router(analytics_router, prefix="/api/v1", tags=["analytics"])
 app.include_router(student_dashboard_router, prefix="/api/v1", tags=["student-dashboard"])
 app.include_router(ml_router, prefix="/api/v1", tags=["ml"])
 app.include_router(recommendations_router, prefix="/api/v1", tags=["recommendations"])
+app.include_router(teacher_router, prefix="/api/v1", tags=["teacher"])
