@@ -76,7 +76,7 @@ export default function Login() {
             </div>
           </div>
           <div className="hidden sm:block text-sm text-slate-500">
-             → student dashboard
+             → student & Teacher dashboard
           </div>
         </div>
       </div>
