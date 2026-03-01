@@ -10,6 +10,7 @@ class Quiz(Base):
     lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
+    time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -13,8 +13,8 @@ type LoginResponse = {
 export default function Login() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("student1@eduwise.com");
-  const [password, setPassword] = useState("Passw0rd!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -41,20 +41,25 @@ export default function Login() {
 
       setAccessToken(res.data.access_token);
 
-      // If your backend includes role in response, you can route by role.
-      // Otherwise, just send student to /student for your demo.
-      const role = res.data.user?.role;
-      if (role === "teacher") {
-        navigate("/teacher"); // only if you have this route; otherwise comment it out
+      // Decode the JWT payload (second segment) to read the role claim
+      let role = "student";
+      try {
+        const payload = JSON.parse(atob(res.data.access_token.split(".")[1]));
+        role = payload.role ?? "student";
+      } catch {
+        // fall back to student on decode failure
+      }
+
+      if (role === "admin" || role === "co_admin") {
+        navigate("/admin");
+      } else if (role === "teacher") {
+        navigate("/teacher");
       } else {
         navigate("/student");
       }
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Login failed";
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
+      const msg = e?.response?.data?.detail || e?.response?.data?.message || e?.message || "Login failed";
       setError(msg);
     } finally {
       setLoading(false);
@@ -180,12 +185,10 @@ export default function Login() {
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                   <div className="font-semibold text-slate-700">Demo credentials</div>
-                  <div className="mt-1">
-                    Student: <span className="font-mono">Use your Email</span> /{" "}
-                    <span className="font-mono">and Password to Login</span>
-                  </div>
-                  <div className="mt-1 opacity-80">
-                    (If You don't have an account yet, please contact the administrator to create one for you.)
+                  <div className="mt-1.5 space-y-1">
+                    <div>Teacher: <span className="font-mono text-slate-800">teacher@eduwise.com</span> / <span className="font-mono text-slate-800">password123</span></div>
+                    <div>Student: <span className="font-mono text-slate-800">student@eduwise.com</span> / <span className="font-mono text-slate-800">password123</span></div>
+                    <div>Student: <span className="font-mono text-slate-800">student1@eduwise.com</span> / <span className="font-mono text-slate-800">password123</span></div>
                   </div>
                 </div>
               </form>

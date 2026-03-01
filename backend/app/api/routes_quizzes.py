@@ -12,9 +12,9 @@ from app.models.user import User, UserRole
 from app.schemas.quizzes import (
     QuizCreate, QuizOut,
     QuestionCreate, QuestionOut,
-    PublishRequest,
+    PublishRequest, TimeLimitRequest,
     StartAttemptRequest, AttemptOut,
-    SubmitAttemptRequest,
+    SubmitAttemptRequest, QuestionResult,
 )
 from app.services.audit import log_action
 
@@ -48,13 +48,13 @@ def create_quiz(
     if not lesson:
         raise HTTPException(404, "Lesson not found")
 
-    quiz = Quiz(lesson_id=payload.lesson_id, title=payload.title, is_published=False)
+    quiz = Quiz(lesson_id=payload.lesson_id, title=payload.title, is_published=False, time_limit_minutes=payload.time_limit_minutes)
     db.add(quiz)
     db.commit()
     db.refresh(quiz)
 
     log_action(db, user.id, "CREATE", "Quiz", str(quiz.id))
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published)
+    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
 
 
 @router.post("/quizzes/{quiz_id}/questions", response_model=QuestionOut)
@@ -113,7 +113,26 @@ def publish_quiz(
     db.refresh(quiz)
 
     log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published)
+    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+
+
+@router.patch("/quizzes/{quiz_id}/time-limit", response_model=QuizOut)
+def set_time_limit(
+    quiz_id: int,
+    payload: TimeLimitRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+
+    quiz.time_limit_minutes = payload.time_limit_minutes
+    db.commit()
+    db.refresh(quiz)
+
+    log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
+    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
 
 
 @router.get("/lessons/{lesson_id}/quizzes", response_model=list[QuizOut])
@@ -129,7 +148,7 @@ def list_quizzes_for_lesson(
         quizzes = [q for q in quizzes if q.is_published]
 
     return [
-        QuizOut(id=q.id, lesson_id=q.lesson_id, title=q.title, is_published=q.is_published)
+        QuizOut(id=q.id, lesson_id=q.lesson_id, title=q.title, is_published=q.is_published, time_limit_minutes=q.time_limit_minutes)
         for q in quizzes
     ]
 
@@ -208,11 +227,27 @@ def start_attempt(
 
     # Return existing attempt if already started (or submitted)
     if attempt:
+        results = []
+        if attempt.is_submitted:
+            answers = db.query(QuizAnswer).filter(QuizAnswer.attempt_id == attempt.id).all()
+            qmap = {q.id: q for q in db.query(QuizQuestion).filter(QuizQuestion.quiz_id == quiz.id).all()}
+            results = [
+                QuestionResult(
+                    question_id=a.question_id,
+                    selected_option=a.selected_option,
+                    correct_option=qmap[a.question_id].correct_option if a.question_id in qmap else "",
+                    is_correct=a.is_correct,
+                )
+                for a in answers
+            ]
         return AttemptOut(
             attempt_id=attempt.id,
             quiz_id=attempt.quiz_id,
             is_submitted=attempt.is_submitted,
             score_pct=attempt.score_pct,
+            time_limit_minutes=quiz.time_limit_minutes,
+            started_at=str(attempt.started_at) if attempt.started_at else None,
+            results=results,
         )
 
     attempt = QuizAttempt(student_id=user.id, quiz_id=payload.quiz_id, score_pct=0, is_submitted=False)
@@ -226,6 +261,9 @@ def start_attempt(
         quiz_id=attempt.quiz_id,
         is_submitted=attempt.is_submitted,
         score_pct=attempt.score_pct,
+        time_limit_minutes=quiz.time_limit_minutes,
+        started_at=str(attempt.started_at) if attempt.started_at else None,
+        results=[],
     )
 
 
@@ -319,9 +357,26 @@ def submit_attempt(
     db.refresh(attempt)
 
     log_action(db, user.id, "SUBMIT", "QuizAttempt", str(attempt.id))
+
+    # Build per-question results for instant feedback
+    all_answers = db.query(QuizAnswer).filter(QuizAnswer.attempt_id == attempt.id).all()
+    results = [
+        QuestionResult(
+            question_id=a.question_id,
+            selected_option=a.selected_option,
+            correct_option=qmap[a.question_id].correct_option,
+            is_correct=a.is_correct,
+        )
+        for a in all_answers
+        if a.question_id in qmap
+    ]
+
     return AttemptOut(
         attempt_id=attempt.id,
         quiz_id=attempt.quiz_id,
         is_submitted=attempt.is_submitted,
         score_pct=attempt.score_pct,
+        time_limit_minutes=quiz.time_limit_minutes,
+        started_at=str(attempt.started_at) if attempt.started_at else None,
+        results=results,
     )

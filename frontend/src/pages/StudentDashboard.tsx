@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearAccessToken, getAccessToken } from "../lib/auth";
+import NotificationBell from "../components/NotificationBell";
 
 type DashboardData = {
   student: { id: number; full_name: string; email: string };
-  enrollments_active: number;
-  lessons_total: number;
-  progress: { avg_progress_pct: number; completed_progress_rows: number };
-  quizzes: { published: number; attempts_total: number; avg_score_pct: number | null };
-  events: { total: number; by_type: Record<string, number> };
+  courses_enrolled: number;
+  progress: { avg_progress_pct: number | null; completed_lessons: number; total_lessons: number };
+  quizzes: { attempts_total: number; avg_score_pct: number | null };
+  events: { total: number; by_type: Record<string, number>; recent_activity: unknown[] };
 };
 
 type RiskData = {
@@ -140,9 +140,9 @@ export default function StudentDashboard() {
       setDashboard(d.data);
       setRisk(r.data);
       setRecs(rec.data);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || "Failed to load data";
-      setError(msg);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setError(e?.response?.data?.detail || e?.message || "Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -178,7 +178,7 @@ export default function StudentDashboard() {
     return "Low risk";
   })();
 
-  const avgProgressPct = dashboard?.progress?.avg_progress_pct ?? 0;
+  const avgProgressPct = Math.round(dashboard?.progress?.avg_progress_pct ?? 0);
   const riskPct = risk ? Math.round(risk.risk_score * 100) : null;
 
   return (
@@ -205,6 +205,7 @@ export default function StudentDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <button
               onClick={loadAll}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -232,7 +233,7 @@ export default function StudentDashboard() {
           <StatCard
             to="/student/courses"
             label="Active enrollments"
-            value={dashboard ? dashboard.enrollments_active : loading ? "…" : 0}
+            value={dashboard ? dashboard.courses_enrolled : loading ? "…" : 0}
             sub="Courses you’re currently enrolled in"
             icon={<span className="text-base">📚</span>}
           />
@@ -246,7 +247,7 @@ export default function StudentDashboard() {
                     {dashboard ? `${avgProgressPct}%` : loading ? "…" : "0%"}
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {dashboard?.progress?.completed_progress_rows ?? 0} lessons completed
+                    {dashboard?.progress?.completed_lessons ?? 0} lessons completed
                   </div>
                   <ProgressBar pct={dashboard ? avgProgressPct : 0} />
                   <div className="mt-3 text-xs font-medium text-slate-500">Click to manage lessons →</div>
@@ -268,7 +269,7 @@ export default function StudentDashboard() {
                 ? "…"
                 : "—"
             }
-            sub={`${dashboard?.quizzes?.attempts_total ?? 0} attempts • ${dashboard?.quizzes?.published ?? 0} published`}
+            sub={`${dashboard?.quizzes?.attempts_total ?? 0} quiz attempts`}
             icon={<span className="text-base">🧠</span>}
           />
 

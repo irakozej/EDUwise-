@@ -2,6 +2,10 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict
 
 
+class TeacherEnrollByEmailRequest(BaseModel):
+    email: EmailStr
+
+
 class TeacherCreateStudentRequest(BaseModel):
     full_name: str = Field(min_length=2)
     email: EmailStr

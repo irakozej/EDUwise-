@@ -1,9 +1,13 @@
 import hashlib
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
+from jose import jwt, JWTError
 
+from app.core.config import settings
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.refresh_token import RefreshToken
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, MeResponse
 from app.services.security import (
@@ -12,8 +16,8 @@ from app.services.security import (
 )
 from app.services.audit import log_action
 from app.api.deps import get_current_user
-from jose import jwt, JWTError
-from app.core.config import settings
+
+_optional_bearer = HTTPBearer(auto_error=False)
 
 router = APIRouter()
 
@@ -21,7 +25,30 @@ def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 @router.post("/auth/register", response_model=MeResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(
+    payload: RegisterRequest,
+    db: Session = Depends(get_db),
+    creds: Optional[HTTPAuthorizationCredentials] = Security(_optional_bearer),
+):
+    # admin / co_admin accounts require a valid privileged token
+    privileged_roles = {UserRole.admin, UserRole.co_admin}
+    if payload.role in privileged_roles:
+        if not creds:
+            raise HTTPException(status_code=403, detail="Only existing admins can create privileged accounts")
+        try:
+            token_payload = jwt.decode(creds.credentials, settings.JWT_SECRET, algorithms=["HS256"])
+            if token_payload.get("type") != "access":
+                raise HTTPException(status_code=403, detail="Invalid token")
+            actor_id = int(token_payload.get("sub"))
+        except (JWTError, ValueError):
+            raise HTTPException(status_code=403, detail="Invalid or expired token")
+        actor = db.get(User, actor_id)
+        if not actor or actor.role not in privileged_roles or not actor.is_active:
+            raise HTTPException(status_code=403, detail="Only admins can create privileged accounts")
+        # Co-admins cannot create admin or co_admin — only The Admin can
+        if actor.role == UserRole.co_admin:
+            raise HTTPException(status_code=403, detail="Co-admins cannot create admin or co-admin accounts")
+
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,8 +14,27 @@ from app.api.routes_student_dashboard import router as student_dashboard_router
 from app.api.routes_ml import router as ml_router
 from app.api.routes_recommendations import router as recommendations_router
 from app.api.routes_teacher import router as teacher_router
+from app.api.routes_me import router as me_router
+from app.api.routes_upload import router as upload_router
+from app.api.routes_assignments import router as assignments_router
+from app.api.routes_announcements import router as announcements_router
+from app.api.routes_certificate import router as certificate_router
+from app.api.routes_admin import router as admin_router
+from app.api.routes_discussions import router as discussions_router
+from app.api.routes_notifications import router as notifications_router
 
-app = FastAPI(title="EduWise API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        from app.services.storage import ensure_bucket
+        ensure_bucket()
+    except Exception as e:
+        print(f"[startup] MinIO bucket init skipped: {e}")
+    yield
+
+
+app = FastAPI(title="EduWise API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,3 +54,11 @@ app.include_router(student_dashboard_router, prefix="/api/v1", tags=["student-da
 app.include_router(ml_router, prefix="/api/v1", tags=["ml"])
 app.include_router(recommendations_router, prefix="/api/v1", tags=["recommendations"])
 app.include_router(teacher_router, prefix="/api/v1", tags=["teacher"])
+app.include_router(me_router, prefix="/api/v1", tags=["me"])
+app.include_router(upload_router, prefix="/api/v1", tags=["upload"])
+app.include_router(assignments_router, prefix="/api/v1", tags=["assignments"])
+app.include_router(announcements_router, prefix="/api/v1", tags=["announcements"])
+app.include_router(certificate_router, prefix="/api/v1", tags=["certificate"])
+app.include_router(admin_router, prefix="/api/v1", tags=["admin"])
+app.include_router(discussions_router, prefix="/api/v1", tags=["discussions"])
+app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])

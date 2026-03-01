@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+import csv
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -16,6 +19,7 @@ from app.schemas.teacher import (
     TeacherEnrollmentOut,
     StudentCourseProgressOut,
     LessonProgressOut,
+    TeacherEnrollByEmailRequest,
 )
 from app.services.security import hash_password
 from app.services.audit import log_action
@@ -229,3 +233,116 @@ def teacher_student_progress(
         quizzes={"published_total": len(quizzes), "attempts_total": attempts_total, "avg_score_pct": avg_score},
         events={"total": events_total, "by_type": by_type},
     )
+
+
+@router.post("/teacher/courses/{course_id}/enroll")
+def teacher_enroll_student(
+    course_id: int,
+    payload: TeacherEnrollByEmailRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    course = db.get(Course, course_id)
+    if not course:
+        raise HTTPException(404, "Course not found")
+    _ensure_teacher_owns_course(user, course)
+
+    student = db.query(User).filter(User.email == payload.email).first()
+    if not student:
+        raise HTTPException(404, "No registered user with that email")
+    if student.role != UserRole.student:
+        raise HTTPException(400, "That user is not a student")
+    if not student.is_active:
+        raise HTTPException(400, "Student account is inactive")
+
+    existing = db.query(Enrollment).filter(
+        Enrollment.student_id == student.id,
+        Enrollment.course_id == course_id,
+    ).first()
+
+    if existing:
+        if existing.status == "active":
+            return {"status": "already_enrolled", "student_id": student.id, "full_name": student.full_name}
+        existing.status = "active"
+        db.commit()
+        log_action(db, user.id, "ENROLL", "Course", f"{course_id}:{student.id}")
+        return {"status": "re_enrolled", "student_id": student.id, "full_name": student.full_name}
+
+    db.add(Enrollment(student_id=student.id, course_id=course_id, status="active"))
+    db.commit()
+    log_action(db, user.id, "ENROLL", "Course", f"{course_id}:{student.id}")
+    return {"status": "enrolled", "student_id": student.id, "full_name": student.full_name}
+
+
+@router.post("/teacher/courses/{course_id}/enroll-bulk")
+async def teacher_enroll_bulk(
+    course_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    """Upload a CSV file (one email per row or with 'email' header) to bulk-enroll students."""
+    course = db.get(Course, course_id)
+    if not course:
+        raise HTTPException(404, "Course not found")
+    _ensure_teacher_owns_course(user, course)
+
+    content = await file.read()
+    text = content.decode("utf-8", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+
+    emails: list[str] = []
+    for i, row in enumerate(reader):
+        if not row:
+            continue
+        cell = row[0].strip()
+        # Skip header row
+        if i == 0 and cell.lower() in ("email", "emails", "student_email"):
+            continue
+        if cell and "@" in cell:
+            emails.append(cell.lower())
+
+    enrolled: list[str] = []
+    already_enrolled: list[str] = []
+    not_found: list[str] = []
+    errors: list[str] = []
+
+    for email in emails:
+        try:
+            student = db.query(User).filter(User.email == email).first()
+            if not student:
+                not_found.append(email)
+                continue
+            if student.role != UserRole.student:
+                errors.append(f"{email}: not a student account")
+                continue
+            if not student.is_active:
+                errors.append(f"{email}: account is inactive")
+                continue
+
+            existing = db.query(Enrollment).filter(
+                Enrollment.student_id == student.id,
+                Enrollment.course_id == course_id,
+            ).first()
+
+            if existing:
+                if existing.status == "active":
+                    already_enrolled.append(email)
+                else:
+                    existing.status = "active"
+                    enrolled.append(email)
+            else:
+                db.add(Enrollment(student_id=student.id, course_id=course_id, status="active"))
+                enrolled.append(email)
+        except Exception as e:
+            errors.append(f"{email}: {str(e)}")
+
+    db.commit()
+    log_action(db, user.id, "BULK_ENROLL", "Course", str(course_id))
+
+    return {
+        "enrolled": enrolled,
+        "already_enrolled": already_enrolled,
+        "not_found": not_found,
+        "errors": errors,
+    }

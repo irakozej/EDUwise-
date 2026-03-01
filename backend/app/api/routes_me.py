@@ -6,7 +6,8 @@ from app.api.deps import require_roles
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.enrollment import Enrollment
-from app.models.course import Course, Module, Lesson, LessonProgress
+from app.models.course import Course, Module, Lesson
+from app.models.progress import LessonProgress
 from app.models.quiz import Quiz, QuizAttempt
 
 router = APIRouter()
@@ -39,7 +40,7 @@ def my_courses_student(
         # completed lessons for student
         completed_lessons = (
             db.query(func.count(LessonProgress.id))
-            .filter(LessonProgress.student_id == user.id, LessonProgress.is_completed == True)
+            .filter(LessonProgress.student_id == user.id, LessonProgress.progress_pct >= 100)
             .join(Lesson, Lesson.id == LessonProgress.lesson_id)
             .join(Module, Module.id == Lesson.module_id)
             .filter(Module.course_id == course.id)

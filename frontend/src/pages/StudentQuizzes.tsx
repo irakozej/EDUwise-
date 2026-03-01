@@ -9,7 +9,7 @@ type Lesson = { id: number; module_id: number; title: string; order_index: numbe
 
 type QuizOut = { id: number; lesson_id: number; title: string; is_published: boolean };
 
-type RecommendationsData = { student_id: number; course_ids?: number[]; recommendations: any[] };
+type RecommendationsData = { student_id: number; course_ids?: number[]; recommendations: unknown[] };
 
 export default function StudentQuizzes() {
   const token = useMemo(() => getAccessToken(), []);
@@ -54,8 +54,9 @@ export default function StudentQuizzes() {
         // Deduplicate by id
         const unique = Array.from(new Map(found.map((q) => [q.id, q])).values());
         setQuizzes(unique);
-      } catch (err: any) {
-        setError(err?.response?.data?.detail || err?.message || "Failed to load quizzes");
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { detail?: string } }; message?: string };
+        setError(e?.response?.data?.detail || e?.message || "Failed to load quizzes");
       } finally {
         setLoading(false);
       }

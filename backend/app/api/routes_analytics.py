@@ -1,4 +1,8 @@
+import csv
+import io
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -128,3 +132,114 @@ def course_analytics(
             "by_type": events_by_type,
         },
     }
+
+
+@router.get("/courses/{course_id}/analytics/export")
+def export_course_analytics_csv(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    """Download per-student analytics for a course as CSV."""
+    course = db.get(Course, course_id)
+    if not course:
+        raise HTTPException(404, "Course not found")
+    if user.role != UserRole.admin and course.teacher_id != user.id:
+        raise HTTPException(403, "Not your course")
+
+    # All active enrolled students
+    rows = (
+        db.query(Enrollment, User)
+        .join(User, User.id == Enrollment.student_id)
+        .filter(Enrollment.course_id == course_id, Enrollment.status == "active")
+        .all()
+    )
+
+    # All lessons in course
+    modules = db.query(Module).filter(Module.course_id == course_id).all()
+    module_ids = [m.id for m in modules]
+    lessons = []
+    lesson_ids: list[int] = []
+    if module_ids:
+        lessons = db.query(Lesson).filter(Lesson.module_id.in_(module_ids)).all()
+        lesson_ids = [l.id for l in lessons]
+    total_lessons = len(lessons)
+
+    # Published quizzes
+    quiz_ids: list[int] = []
+    if lesson_ids:
+        quizzes = (
+            db.query(Quiz)
+            .filter(Quiz.lesson_id.in_(lesson_ids), Quiz.is_published == True)  # noqa: E712
+            .all()
+        )
+        quiz_ids = [q.id for q in quizzes]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "student_name", "student_email", "enrollment_status",
+        "avg_progress_pct", "lessons_completed", "lessons_total",
+        "quiz_attempts", "avg_quiz_score_pct",
+    ])
+
+    for enrollment, student in rows:
+        avg_prog = ""
+        completed = 0
+        if lesson_ids:
+            progress_rows = (
+                db.query(LessonProgress)
+                .filter(
+                    LessonProgress.student_id == student.id,
+                    LessonProgress.lesson_id.in_(lesson_ids),
+                )
+                .all()
+            )
+            if progress_rows:
+                avg_prog = int(round(sum(p.progress_pct for p in progress_rows) / len(progress_rows)))
+            completed = sum(1 for p in progress_rows if p.progress_pct >= 100)
+
+        attempts = 0
+        avg_score = ""
+        if quiz_ids:
+            attempts = (
+                db.query(func.count(QuizAttempt.id))
+                .filter(
+                    QuizAttempt.student_id == student.id,
+                    QuizAttempt.quiz_id.in_(quiz_ids),
+                )
+                .scalar()
+                or 0
+            )
+            score_val = (
+                db.query(func.avg(QuizAttempt.score_pct))
+                .filter(
+                    QuizAttempt.student_id == student.id,
+                    QuizAttempt.quiz_id.in_(quiz_ids),
+                    QuizAttempt.is_submitted == True,  # noqa: E712
+                )
+                .scalar()
+            )
+            if score_val is not None:
+                avg_score = int(round(score_val))
+
+        writer.writerow([
+            student.full_name,
+            student.email,
+            enrollment.status,
+            avg_prog,
+            completed,
+            total_lessons,
+            attempts,
+            avg_score,
+        ])
+
+    output.seek(0)
+    safe_title = course.title.replace(" ", "_").replace("/", "-")[:40]
+    filename = f"analytics_{safe_title}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
