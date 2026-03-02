@@ -11,6 +11,7 @@ from app.models.enrollment import Enrollment
 from app.models.course import Course, Module, Lesson
 from app.models.progress import LessonProgress
 from app.models.quiz import Quiz, QuizAttempt
+from app.services.security import hash_password, verify_password
 
 router = APIRouter()
 
@@ -60,6 +61,26 @@ def update_my_profile(
     db.commit()
     db.refresh(user)
     return _profile_out(user)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.patch("/me/password")
+def change_my_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    if len(payload.new_password) < 6:
+        raise HTTPException(400, "New password must be at least 6 characters")
+    user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Password changed successfully"}
 
 
 @router.get("/users/{user_id}/profile")

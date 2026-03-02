@@ -54,6 +54,14 @@ export default function ProfilePage() {
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
 
+  // Password change state
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
+
   useEffect(() => {
     if (!getAccessToken()) { window.location.href = "/"; return; }
     api.get<ProfileData>("/api/v1/me/profile")
@@ -66,6 +74,39 @@ export default function ProfilePage() {
       .catch(() => setError("Failed to load profile"))
       .finally(() => setLoading(false));
   }, []);
+
+  async function savePassword() {
+    if (!currentPw || !newPw || !confirmPw) {
+      setPwError("All fields are required.");
+      return;
+    }
+    if (newPw.length < 6) {
+      setPwError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError("New passwords do not match.");
+      return;
+    }
+    setPwSaving(true);
+    setPwError("");
+    setPwSuccess("");
+    try {
+      await api.patch("/api/v1/me/password", {
+        current_password: currentPw,
+        new_password: newPw,
+      });
+      setPwSuccess("Password changed successfully.");
+      setCurrentPw("");
+      setNewPw("");
+      setConfirmPw("");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setPwError(e?.response?.data?.detail || "Failed to change password");
+    } finally {
+      setPwSaving(false);
+    }
+  }
 
   async function save() {
     if (!name.trim()) return;
@@ -227,6 +268,73 @@ export default function ProfilePage() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Change Password */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="grid h-8 w-8 place-items-center rounded-xl bg-slate-100">
+              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="text-slate-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h2 className="text-sm font-semibold text-slate-900">Change Password</h2>
+          </div>
+
+          {pwError && (
+            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{pwError}</div>
+          )}
+          {pwSuccess && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{pwSuccess}</div>
+          )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-slate-600">Current Password</label>
+              <input
+                type="password"
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                autoComplete="current-password"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">New Password</label>
+              <input
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                autoComplete="new-password"
+                placeholder="At least 6 characters"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                autoComplete="new-password"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+              {confirmPw && newPw && confirmPw !== newPw && (
+                <p className="mt-1 text-xs text-rose-500">Passwords do not match</p>
+              )}
+              {confirmPw && newPw && confirmPw === newPw && (
+                <p className="mt-1 text-xs text-emerald-600">Passwords match</p>
+              )}
+            </div>
+
+            <button
+              onClick={savePassword}
+              disabled={pwSaving || !currentPw || !newPw || !confirmPw}
+              className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              {pwSaving ? "Saving…" : "Change Password"}
+            </button>
           </div>
         </div>
       </div>

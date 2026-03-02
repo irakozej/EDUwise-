@@ -92,6 +92,10 @@ export default function StudentCourseDetail() {
   const [submitting, setSubmitting] = useState<Record<number, boolean>>({});
   const [submitError, setSubmitError] = useState<Record<number, string>>({});
 
+  // Per-lesson active tab
+  type LessonTab = "overview" | "resources" | "quizzes" | "assignments" | "discussion";
+  const [lessonTab, setLessonTab] = useState<Record<number, LessonTab>>({});
+
   // Discussion state per lesson
   const [commentsByLesson, setCommentsByLesson] = useState<Record<number, Comment[]>>({});
   const [commentText, setCommentText] = useState<Record<number, string>>({});
@@ -357,257 +361,310 @@ export default function StudentCourseDetail() {
                     const quizzes = quizzesByLesson[lesson.id] || [];
                     const resources = resourcesByLesson[lesson.id] || [];
                     const assignments = assignmentsByLesson[lesson.id] || [];
+                    const activeTab: LessonTab = lessonTab[lesson.id] ?? "overview";
+
+                    const tabs: { key: LessonTab; label: string; count?: number }[] = [
+                      { key: "overview",    label: "Overview" },
+                      { key: "resources",   label: "Resources",   count: resources.length },
+                      { key: "quizzes",     label: "Quizzes",     count: quizzes.length },
+                      { key: "assignments", label: "Assignments",  count: assignments.length },
+                      { key: "discussion",  label: "Discussion" },
+                    ];
 
                     return (
-                      <div key={lesson.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div key={lesson.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                         {/* Lesson header */}
-                        <div className="flex items-center gap-2 mb-3">
+                        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
                           <div className="truncate text-sm font-semibold text-slate-900">{lesson.title}</div>
-                          {completed && (
-                            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200 shrink-0">
-                              Completed
+                          {completed ? (
+                            <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
+                              ✓ Completed
                             </span>
+                          ) : (
+                            <span className="shrink-0 text-xs text-slate-400">{pct}% done</span>
                           )}
                         </div>
 
-                        {lesson.content && (
-                          <div className="mb-3">
-                            <RichEditor value={lesson.content || ""} readOnly />
-                          </div>
-                        )}
-
-                        {/* Progress */}
-                        <div className="mb-4">
-                          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                            <span>Your progress</span>
-                            <span className="font-medium text-slate-700">{pct}%</span>
-                          </div>
-                          <div className="h-1.5 w-full rounded-full bg-slate-200">
-                            <div className="h-1.5 rounded-full bg-slate-900 transition-all" style={{ width: `${pct}%` }} />
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {[25, 50, 75].map((v) => (
-                              <button
-                                key={v}
-                                onClick={() => setProgress(lesson.id, v)}
-                                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                {v}%
-                              </button>
-                            ))}
+                        {/* Tab bar */}
+                        <div className="flex border-b border-slate-100 overflow-x-auto">
+                          {tabs.map((t) => (
                             <button
-                              onClick={() => setProgress(lesson.id, 100)}
-                              className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                              key={t.key}
+                              onClick={() => setLessonTab((p) => ({ ...p, [lesson.id]: t.key }))}
+                              className={`flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition border-b-2 ${
+                                activeTab === t.key
+                                  ? "border-sky-500 text-sky-700 bg-sky-50/50"
+                                  : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                              }`}
                             >
-                              Mark complete
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          {/* Resources */}
-                          <div>
-                            <div className="text-xs font-semibold text-slate-600 mb-2">Resources</div>
-                            {resources.length === 0 ? (
-                              <div className="text-xs text-slate-400">No resources</div>
-                            ) : (
-                              <div className="space-y-2">
-                                {resources.map((res) => (
-                                  <div key={res.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                                    <div className="text-xs font-semibold text-slate-900">{res.title}</div>
-                                    <div className="mt-0.5 text-[11px] text-slate-500">
-                                      {[res.topic && `Topic: ${res.topic}`, res.difficulty && `Difficulty: ${res.difficulty}`, res.format && `Format: ${res.format}`]
-                                        .filter(Boolean).join(" · ")}
-                                    </div>
-                                    {res.url ? (
-                                      <a href={res.url} target="_blank" rel="noreferrer" className="mt-1.5 inline-block text-xs font-medium text-slate-900 underline">
-                                        Open resource →
-                                      </a>
-                                    ) : res.text_body ? (
-                                      <p className="mt-1.5 text-[11px] text-slate-600 leading-relaxed">{res.text_body}</p>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Quizzes */}
-                          <div>
-                            <div className="text-xs font-semibold text-slate-600 mb-2">Quizzes</div>
-                            {quizzes.length === 0 ? (
-                              <div className="text-xs text-slate-400">No quizzes for this lesson</div>
-                            ) : (
-                              <div className="space-y-2">
-                                {quizzes.map((quiz) => (
-                                  <Link
-                                    key={quiz.id}
-                                    to={`/student/quizzes/${quiz.id}`}
-                                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:bg-slate-50 hover:border-slate-300 transition"
-                                  >
-                                    <div className="text-xs font-medium text-slate-900">{quiz.title}</div>
-                                    <span className="text-xs text-slate-400 shrink-0">Take quiz →</span>
-                                  </Link>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Discussion */}
-                        <div className="mt-4">
-                          <button
-                            onClick={() => loadComments(lesson.id)}
-                            className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1 hover:text-slate-900"
-                          >
-                            Discussion
-                            {!loadedDiscussion[lesson.id] && <span className="text-slate-400 font-normal">(click to load)</span>}
-                          </button>
-                          {loadedDiscussion[lesson.id] && (
-                            <div className="space-y-2">
-                              {(commentsByLesson[lesson.id] || []).length === 0 ? (
-                                <div className="text-xs text-slate-400">No comments yet. Be the first!</div>
-                              ) : (
-                                (commentsByLesson[lesson.id] || []).map((c) => (
-                                  <div key={c.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-start gap-2">
-                                    <div className={`shrink-0 grid h-7 w-7 place-items-center rounded-xl text-[10px] font-bold ${c.author_role === "teacher" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
-                                      {c.author_name.charAt(0).toUpperCase()}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-xs font-semibold text-slate-800">{c.author_name}</span>
-                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${c.author_role === "teacher" ? "bg-violet-50 text-violet-600" : "bg-sky-50 text-sky-600"}`}>
-                                          {c.author_role}
-                                        </span>
-                                        <span className="text-[10px] text-slate-400 ml-auto">{timeAgo(c.created_at)}</span>
-                                      </div>
-                                      <p className="mt-0.5 text-xs text-slate-700 leading-relaxed">{c.body}</p>
-                                    </div>
-                                    <button
-                                      onClick={() => deleteComment(lesson.id, c.id)}
-                                      className="shrink-0 text-slate-300 hover:text-rose-400 text-xs mt-0.5"
-                                      title="Delete"
-                                    >×</button>
-                                  </div>
-                                ))
+                              {t.label}
+                              {t.count != null && t.count > 0 && (
+                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${activeTab === t.key ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500"}`}>
+                                  {t.count}
+                                </span>
                               )}
-                              <div className="flex gap-2 mt-2">
-                                <input
-                                  value={commentText[lesson.id] || ""}
-                                  onChange={(e) => setCommentText((p) => ({ ...p, [lesson.id]: e.target.value }))}
-                                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(lesson.id); } }}
-                                  placeholder="Add a comment… (Enter to post)"
-                                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-400"
-                                />
-                                <button
-                                  onClick={() => postComment(lesson.id)}
-                                  disabled={postingComment[lesson.id] || !(commentText[lesson.id] || "").trim()}
-                                  className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                                >
-                                  {postingComment[lesson.id] ? "…" : "Post"}
-                                </button>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Tab content */}
+                        <div className="p-4">
+
+                          {/* ── Overview ── */}
+                          {activeTab === "overview" && (
+                            <div className="space-y-4">
+                              {lesson.content ? (
+                                <RichEditor value={lesson.content} readOnly />
+                              ) : (
+                                <div className="text-xs text-slate-400 italic">No lesson content yet.</div>
+                              )}
+
+                              {/* Progress controls */}
+                              <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                                <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+                                  <span className="font-medium text-slate-600">Your progress</span>
+                                  <span className="font-bold text-slate-700">{pct}%</span>
+                                </div>
+                                <div className="h-2 w-full rounded-full bg-slate-200 mb-3">
+                                  <div
+                                    className={`h-2 rounded-full transition-all ${completed ? "bg-emerald-500" : "bg-sky-500"}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {[25, 50, 75].map((v) => (
+                                    <button
+                                      key={v}
+                                      onClick={() => setProgress(lesson.id, v)}
+                                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                      {v}%
+                                    </button>
+                                  ))}
+                                  <button
+                                    onClick={() => setProgress(lesson.id, 100)}
+                                    className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                                  >
+                                    Mark complete
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           )}
-                        </div>
 
-                        {/* Assignments */}
-                        {assignments.length > 0 && (
-                          <div className="mt-4">
-                            <div className="text-xs font-semibold text-slate-600 mb-2">Assignments</div>
-                            <div className="space-y-3">
-                              {assignments.map((assign) => {
-                                const sub = submissionsByAssignment[assign.id];
-                                const isOverdue = assign.due_date && new Date(assign.due_date) < new Date();
-
-                                return (
-                                  <div key={assign.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div>
-                                        <div className="text-xs font-semibold text-slate-900">{assign.title}</div>
-                                        {assign.description && (
-                                          <p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed">{assign.description}</p>
-                                        )}
-                                        <div className="mt-1 flex gap-2 flex-wrap">
-                                          <span className="text-[11px] text-slate-400">Max: {assign.max_score} pts</span>
-                                          {assign.due_date && (
-                                            <span className={`text-[11px] ${isOverdue ? "text-rose-500 font-medium" : "text-slate-400"}`}>
-                                              Due: {new Date(assign.due_date).toLocaleDateString()}{isOverdue && " (Overdue)"}
-                                            </span>
-                                          )}
-                                        </div>
+                          {/* ── Resources ── */}
+                          {activeTab === "resources" && (
+                            <div>
+                              {resources.length === 0 ? (
+                                <div className="text-xs text-slate-400 py-4 text-center">No resources for this lesson.</div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {resources.map((res) => (
+                                    <div key={res.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                      <div className="text-xs font-semibold text-slate-900">{res.title}</div>
+                                      <div className="mt-0.5 text-[11px] text-slate-500">
+                                        {[res.topic && `Topic: ${res.topic}`, res.difficulty && `Difficulty: ${res.difficulty}`, res.format && `Format: ${res.format}`]
+                                          .filter(Boolean).join(" · ")}
                                       </div>
-                                      {sub?.grade != null ? (
-                                        <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
-                                          {sub.grade}/{assign.max_score}
-                                        </span>
-                                      ) : sub?.is_submitted ? (
-                                        <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 border border-amber-200">
-                                          Awaiting grade
-                                        </span>
+                                      {res.url ? (
+                                        <a href={res.url} target="_blank" rel="noreferrer" className="mt-1.5 inline-block text-xs font-medium text-sky-700 hover:underline">
+                                          Open resource →
+                                        </a>
+                                      ) : res.text_body ? (
+                                        <p className="mt-1.5 text-[11px] text-slate-600 leading-relaxed">{res.text_body}</p>
                                       ) : null}
                                     </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
-                                    {sub?.grade != null && sub.feedback && (
-                                      <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
-                                        <div className="text-[11px] font-semibold text-emerald-800 mb-0.5">Feedback</div>
-                                        <p className="text-[11px] text-emerald-700 leading-relaxed">{sub.feedback}</p>
-                                      </div>
-                                    )}
+                          {/* ── Quizzes ── */}
+                          {activeTab === "quizzes" && (
+                            <div>
+                              {quizzes.length === 0 ? (
+                                <div className="text-xs text-slate-400 py-4 text-center">No quizzes for this lesson.</div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {quizzes.map((quiz) => (
+                                    <Link
+                                      key={quiz.id}
+                                      to={`/student/quizzes/${quiz.id}`}
+                                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-sky-50 hover:border-sky-200 transition"
+                                    >
+                                      <div className="text-xs font-medium text-slate-900">{quiz.title}</div>
+                                      <span className="text-xs text-sky-600 font-medium shrink-0">Take quiz →</span>
+                                    </Link>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
-                                    {sub?.is_submitted && sub.grade == null && (
-                                      <div className="mt-2 space-y-1">
-                                        {sub.text_body && (
-                                          <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
-                                            <div className="text-[11px] font-semibold text-slate-600 mb-0.5">Your answer</div>
-                                            <p className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap">{sub.text_body}</p>
+                          {/* ── Assignments ── */}
+                          {activeTab === "assignments" && (
+                            <div>
+                              {assignments.length === 0 ? (
+                                <div className="text-xs text-slate-400 py-4 text-center">No assignments for this lesson.</div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {assignments.map((assign) => {
+                                    const sub = submissionsByAssignment[assign.id];
+                                    const isOverdue = assign.due_date && new Date(assign.due_date) < new Date();
+
+                                    return (
+                                      <div key={assign.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div>
+                                            <div className="text-xs font-semibold text-slate-900">{assign.title}</div>
+                                            {assign.description && (
+                                              <p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed">{assign.description}</p>
+                                            )}
+                                            <div className="mt-1 flex gap-2 flex-wrap">
+                                              <span className="text-[11px] text-slate-400">Max: {assign.max_score} pts</span>
+                                              {assign.due_date && (
+                                                <span className={`text-[11px] ${isOverdue ? "text-rose-500 font-medium" : "text-slate-400"}`}>
+                                                  Due: {new Date(assign.due_date).toLocaleDateString()}{isOverdue && " (Overdue)"}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {sub?.grade != null ? (
+                                            <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
+                                              {sub.grade}/{assign.max_score}
+                                            </span>
+                                          ) : sub?.is_submitted ? (
+                                            <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 border border-amber-200">
+                                              Awaiting grade
+                                            </span>
+                                          ) : null}
+                                        </div>
+
+                                        {sub?.grade != null && sub.feedback && (
+                                          <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                                            <div className="text-[11px] font-semibold text-emerald-800 mb-0.5">Feedback</div>
+                                            <p className="text-[11px] text-emerald-700 leading-relaxed">{sub.feedback}</p>
                                           </div>
                                         )}
-                                        {sub.file_url && (
-                                          <a href={sub.file_url} target="_blank" rel="noreferrer" className="inline-block text-xs font-medium text-slate-700 underline">
-                                            {sub.file_name || "View uploaded file"} →
-                                          </a>
-                                        )}
-                                      </div>
-                                    )}
 
-                                    {!sub?.is_submitted && (
-                                      <div className="mt-3 space-y-2">
-                                        {submitError[assign.id] && (
-                                          <div className="text-xs text-rose-600">{submitError[assign.id]}</div>
+                                        {sub?.is_submitted && sub.grade == null && (
+                                          <div className="mt-2 space-y-1">
+                                            {sub.text_body && (
+                                              <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+                                                <div className="text-[11px] font-semibold text-slate-600 mb-0.5">Your answer</div>
+                                                <p className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap">{sub.text_body}</p>
+                                              </div>
+                                            )}
+                                            {sub.file_url && (
+                                              <a href={sub.file_url} target="_blank" rel="noreferrer" className="inline-block text-xs font-medium text-slate-700 underline">
+                                                {sub.file_name || "View uploaded file"} →
+                                              </a>
+                                            )}
+                                          </div>
                                         )}
-                                        <textarea
-                                          value={submitText[assign.id] || ""}
-                                          onChange={(e) => setSubmitText((p) => ({ ...p, [assign.id]: e.target.value }))}
-                                          placeholder="Type your answer here…"
-                                          rows={3}
-                                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-slate-400 resize-none"
-                                        />
-                                        <div className="flex items-center gap-3">
-                                          <FileUpload
-                                            onUpload={(url, name) => {
-                                              setSubmitFileUrl((p) => ({ ...p, [assign.id]: url }));
-                                              setSubmitFileName((p) => ({ ...p, [assign.id]: name }));
-                                            }}
-                                            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.zip"
-                                            label="Attach file"
-                                          />
-                                          <button
-                                            onClick={() => submitAssignment(assign.id)}
-                                            disabled={submitting[assign.id]}
-                                            className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                                          >
-                                            {submitting[assign.id] ? "Submitting…" : "Submit"}
-                                          </button>
-                                        </div>
+
+                                        {!sub?.is_submitted && (
+                                          <div className="mt-3 space-y-2">
+                                            {submitError[assign.id] && (
+                                              <div className="text-xs text-rose-600">{submitError[assign.id]}</div>
+                                            )}
+                                            <textarea
+                                              value={submitText[assign.id] || ""}
+                                              onChange={(e) => setSubmitText((p) => ({ ...p, [assign.id]: e.target.value }))}
+                                              placeholder="Type your answer here…"
+                                              rows={3}
+                                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-sky-400 resize-none"
+                                            />
+                                            <div className="flex items-center gap-3">
+                                              <FileUpload
+                                                onUpload={(url, name) => {
+                                                  setSubmitFileUrl((p) => ({ ...p, [assign.id]: url }));
+                                                  setSubmitFileName((p) => ({ ...p, [assign.id]: name }));
+                                                }}
+                                                accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.zip"
+                                                label="Attach file"
+                                              />
+                                              <button
+                                                onClick={() => submitAssignment(assign.id)}
+                                                disabled={submitting[assign.id]}
+                                                className="rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                                              >
+                                                {submitting[assign.id] ? "Submitting…" : "Submit"}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        )}
+                          )}
+
+                          {/* ── Discussion ── */}
+                          {activeTab === "discussion" && (
+                            <div>
+                              {!loadedDiscussion[lesson.id] ? (
+                                <div className="py-4 text-center">
+                                  <button
+                                    onClick={() => loadComments(lesson.id)}
+                                    className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                                  >
+                                    Load discussion
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {(commentsByLesson[lesson.id] || []).length === 0 ? (
+                                    <div className="text-xs text-slate-400 py-2 text-center">No comments yet. Be the first!</div>
+                                  ) : (
+                                    (commentsByLesson[lesson.id] || []).map((c) => (
+                                      <div key={c.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-start gap-2">
+                                        <div className={`shrink-0 grid h-7 w-7 place-items-center rounded-xl text-[10px] font-bold ${c.author_role === "teacher" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
+                                          {c.author_name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs font-semibold text-slate-800">{c.author_name}</span>
+                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${c.author_role === "teacher" ? "bg-violet-50 text-violet-600" : "bg-sky-50 text-sky-600"}`}>
+                                              {c.author_role}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 ml-auto">{timeAgo(c.created_at)}</span>
+                                          </div>
+                                          <p className="mt-0.5 text-xs text-slate-700 leading-relaxed">{c.body}</p>
+                                        </div>
+                                        <button
+                                          onClick={() => deleteComment(lesson.id, c.id)}
+                                          className="shrink-0 text-slate-300 hover:text-rose-400 text-xs mt-0.5"
+                                          title="Delete"
+                                        >×</button>
+                                      </div>
+                                    ))
+                                  )}
+                                  <div className="flex gap-2 mt-2">
+                                    <input
+                                      value={commentText[lesson.id] || ""}
+                                      onChange={(e) => setCommentText((p) => ({ ...p, [lesson.id]: e.target.value }))}
+                                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(lesson.id); } }}
+                                      placeholder="Add a comment… (Enter to post)"
+                                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-400"
+                                    />
+                                    <button
+                                      onClick={() => postComment(lesson.id)}
+                                      disabled={postingComment[lesson.id] || !(commentText[lesson.id] || "").trim()}
+                                      className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                                    >
+                                      {postingComment[lesson.id] ? "…" : "Post"}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                        </div>
                       </div>
                     );
                   })}
