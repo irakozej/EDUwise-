@@ -39,8 +39,7 @@ services:
       JWT_ACCESS_MINUTES: "30"
       JWT_REFRESH_DAYS: "14"
       CORS_ORIGINS: "http://localhost:5173"
-      # Optional (already defaulted in code, but explicit is nice)
-      RISK_TRAIN_DATA_PATH: /app/data/student-mat.csv
+      # Model path (training data auto-detected by train_risk_model.py)
       RISK_MODEL_PATH: /app/app/ml/models/risk_model.joblib
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
@@ -52,8 +51,8 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      # Mount training dataset into container (read-only)
-      - ./data/student-mat.csv:/app/data/student-mat.csv:ro
+      # Mount data/ directory so training datasets are accessible and combined_training.csv can be written
+      - ./data:/app/data
     depends_on:
       - db
       - redis

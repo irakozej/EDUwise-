@@ -21,7 +21,16 @@ from sklearn.metrics import classification_report, roc_auc_score
 
 
 MODEL_OUT = os.getenv("RISK_MODEL_PATH", "/app/app/ml/models/risk_model.joblib")
-DATA_PATH = os.getenv("RISK_TRAIN_DATA_PATH", "/app/data/student-mat.csv")
+
+# Auto-select best available training data (combined > env-var > fallback)
+_DATA_DIR = "/app/data"
+_COMBINED = os.path.join(_DATA_DIR, "combined_training.csv")
+_FALLBACK  = os.path.join(_DATA_DIR, "student-mat.csv")
+DATA_PATH  = (
+    _COMBINED
+    if os.path.exists(_COMBINED)
+    else os.getenv("RISK_TRAIN_DATA_PATH", _FALLBACK)
+)
 
 FEATURE_ORDER = [
     "active_courses",
@@ -90,9 +99,10 @@ def main():
     if not os.path.exists(DATA_PATH):
         raise FileNotFoundError(
             f"Training CSV not found at {DATA_PATH}. "
-            "Mount it into the container (see instructions)."
+            "Run: docker exec eduwise_backend python -m app.ml.prepare_training_data"
         )
 
+    print(f"Training data: {DATA_PATH}")
     df = pd.read_csv(DATA_PATH, sep=";")
     y = _make_label(df)
     X = _build_platform_like_features(df)
