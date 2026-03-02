@@ -13,6 +13,7 @@ import TeacherCourseDetail from "./pages/TeacherCourseDetail";
 import TeacherStudentProgress from "./pages/TeacherStudentProgress";
 import TeacherAssignmentGrading from "./pages/TeacherAssignmentGrading";
 import AdminDashboard from "./pages/AdminDashboard";
+import ProfilePage from "./pages/ProfilePage";
 
 export function App() {
   return (
@@ -35,6 +36,9 @@ export function App() {
 
         {/* Admin routes */}
         <Route path="/admin" element={<AdminDashboard />} />
+
+        {/* Profile */}
+        <Route path="/profile" element={<ProfilePage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

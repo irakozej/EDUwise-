@@ -328,7 +328,7 @@ export default function StudentCourseDetail() {
 
         {error && (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="font-semibold">❌ {error}</div>
+            <div className="font-semibold">{error}</div>
           </div>
         )}
 
@@ -460,7 +460,7 @@ export default function StudentCourseDetail() {
                             onClick={() => loadComments(lesson.id)}
                             className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1 hover:text-slate-900"
                           >
-                            💬 Discussion
+                            Discussion
                             {!loadedDiscussion[lesson.id] && <span className="text-slate-400 font-normal">(click to load)</span>}
                           </button>
                           {loadedDiscussion[lesson.id] && (

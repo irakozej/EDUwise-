@@ -10,3 +10,4 @@ from app.models.assignment import Assignment, Submission
 from app.models.announcement import Announcement
 from app.models.comment import Comment
 from app.models.notification import Notification
+from app.models.message import Message

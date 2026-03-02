@@ -22,6 +22,7 @@ from app.api.routes_certificate import router as certificate_router
 from app.api.routes_admin import router as admin_router
 from app.api.routes_discussions import router as discussions_router
 from app.api.routes_notifications import router as notifications_router
+from app.api.routes_messages import router as messages_router
 
 
 @asynccontextmanager
@@ -34,24 +35,31 @@ async def lifespan(app: FastAPI):
         print(f"[startup] MinIO bucket init skipped: {e}")
 
     # ── Periodic ML retraining (every 24 h) ──────────────────────────────────
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from app.services.retrain import retrain_model_job
+    scheduler = None
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from app.services.retrain import retrain_model_job
 
-    scheduler = BackgroundScheduler(timezone="UTC")
-    scheduler.add_job(
-        retrain_model_job,
-        trigger="interval",
-        hours=24,
-        id="retrain_risk_model",
-        replace_existing=True,
-    )
-    scheduler.start()
-    print("[startup] ML retraining scheduler started — runs every 24 h (UTC)")
+        scheduler = BackgroundScheduler(timezone="UTC")
+        scheduler.add_job(
+            retrain_model_job,
+            trigger="interval",
+            hours=24,
+            id="retrain_risk_model",
+            replace_existing=True,
+        )
+        scheduler.start()
+        print("[startup] ML retraining scheduler started — runs every 24 h (UTC)")
+    except ImportError:
+        print("[startup] apscheduler not installed — scheduler disabled. Run: pip install apscheduler>=3.10.4")
+    except Exception as e:
+        print(f"[startup] Retraining scheduler failed to start: {e}")
 
     yield
 
-    scheduler.shutdown(wait=False)
-    print("[shutdown] ML retraining scheduler stopped")
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        print("[shutdown] ML retraining scheduler stopped")
 
 
 app = FastAPI(title="EduWise API", version="1.0.0", lifespan=lifespan)
@@ -82,3 +90,4 @@ app.include_router(certificate_router, prefix="/api/v1", tags=["certificate"])
 app.include_router(admin_router, prefix="/api/v1", tags=["admin"])
 app.include_router(discussions_router, prefix="/api/v1", tags=["discussions"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
+app.include_router(messages_router, prefix="/api/v1", tags=["messages"])

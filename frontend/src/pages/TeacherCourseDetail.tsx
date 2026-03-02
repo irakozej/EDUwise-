@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken, clearAccessToken } from "../lib/auth";
 import RichEditor from "../components/RichEditor";
 import FileUpload from "../components/FileUpload";
 import NotificationBell from "../components/NotificationBell";
+import MessagesPanel from "../components/MessagesPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ function timeAgo(iso: string): string {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function TeacherCourseDetail() {
+  const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
   const id = Number(courseId);
 
@@ -217,6 +219,11 @@ export default function TeacherCourseDetail() {
   const [loadingAtRisk, setLoadingAtRisk] = useState(false);
   const [atRiskLoaded, setAtRiskLoaded] = useState(false);
 
+  // Messages
+  const [msgOpen, setMsgOpen] = useState(false);
+  const [msgPartnerId, setMsgPartnerId] = useState<number | undefined>(undefined);
+  const [msgUnread, setMsgUnread] = useState(0);
+
   // ── Load core data ──────────────────────────────────────────────────────────
 
   const loadCourse = useCallback(async () => {
@@ -291,6 +298,18 @@ export default function TeacherCourseDetail() {
     initialLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Poll message unread count every 30s
+  useEffect(() => {
+    function fetchMsgUnread() {
+      api.get<{ count: number }>("/api/v1/me/messages/unread-count")
+        .then((r) => setMsgUnread(r.data.count))
+        .catch(() => {});
+    }
+    fetchMsgUnread();
+    const tid = setInterval(fetchMsgUnread, 30000);
+    return () => clearInterval(tid);
+  }, []);
 
   // ── Toggle expand (lazy-loads children) ────────────────────────────────────
 
@@ -615,7 +634,28 @@ export default function TeacherCourseDetail() {
             {course?.title ?? `Course #${id}`}
           </h1>
           <div className="ml-auto flex items-center gap-2">
+            {/* Messages */}
+            <button
+              onClick={() => { setMsgPartnerId(undefined); setMsgOpen(true); }}
+              className="relative grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              aria-label="Messages"
+            >
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {msgUnread > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                  {msgUnread > 99 ? "99+" : msgUnread}
+                </span>
+              )}
+            </button>
             <NotificationBell />
+            <button
+              onClick={() => navigate("/profile")}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Profile
+            </button>
             <button
               onClick={() => { clearAccessToken(); window.location.href = "/"; }}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -1263,6 +1303,12 @@ export default function TeacherCourseDetail() {
                           <span className="text-slate-400">Score: {(s.risk_score * 100).toFixed(0)}%</span>
                           <span className="text-slate-400">Progress: {s.avg_progress.toFixed(0)}%</span>
                           <span className="text-slate-400">Quiz avg: {s.avg_quiz_score.toFixed(0)}%</span>
+                          <button
+                            onClick={() => { setMsgPartnerId(s.student_id); setMsgOpen(true); }}
+                            className="rounded-xl border border-violet-200 px-2 py-1 text-xs text-violet-700 hover:bg-violet-50"
+                          >
+                            Message
+                          </button>
                           <Link
                             to={`/teacher/courses/${id}/students/${s.student_id}`}
                             className="rounded-xl border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
@@ -1295,6 +1341,12 @@ export default function TeacherCourseDetail() {
                       <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                         {status}
                       </span>
+                      <button
+                        onClick={() => { setMsgPartnerId(student.id); setMsgOpen(true); }}
+                        className="rounded-xl border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-50"
+                      >
+                        Message
+                      </button>
                       <Link
                         to={`/teacher/courses/${id}/students/${student.id}`}
                         className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -1480,6 +1532,15 @@ export default function TeacherCourseDetail() {
 
         <footer className="mt-10 text-xs text-slate-500">EduWise · Teacher view</footer>
       </div>
+
+      {/* Messages Panel */}
+      {msgOpen && (
+        <MessagesPanel
+          currentUserId={course?.teacher_id ?? 0}
+          openPartnerId={msgPartnerId}
+          onClose={() => { setMsgOpen(false); setMsgPartnerId(undefined); setMsgUnread(0); }}
+        />
+      )}
     </div>
   );
 }

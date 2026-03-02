@@ -48,7 +48,7 @@ export default function FileUpload({ onUpload, accept, label = "Upload file" }: 
         disabled={uploading}
         className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition"
       >
-        {uploading ? "Uploading…" : uploaded ? `✓ ${uploaded}` : label}
+        {uploading ? "Uploading…" : uploaded ? `Uploaded: ${uploaded}` : label}
       </button>
       {error && <div className="mt-1 text-xs text-rose-600">{error}</div>}
     </div>

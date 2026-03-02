@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearAccessToken, getAccessToken } from "../lib/auth";
 import NotificationBell from "../components/NotificationBell";
+import MessagesPanel from "../components/MessagesPanel";
 
 type TeachingCourse = {
   course_id: number;
@@ -19,10 +20,13 @@ type MeData = {
 };
 
 export default function TeacherDashboard() {
+  const navigate = useNavigate();
   const [me, setMe] = useState<MeData | null>(null);
   const [courses, setCourses] = useState<TeachingCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [msgOpen, setMsgOpen] = useState(false);
+  const [msgUnread, setMsgUnread] = useState(0);
 
   // Create course form state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -55,6 +59,18 @@ export default function TeacherDashboard() {
       return;
     }
     loadAll();
+  }, []);
+
+  // Poll message unread count every 30s
+  useEffect(() => {
+    function fetchMsgUnread() {
+      api.get<{ count: number }>("/api/v1/me/messages/unread-count")
+        .then((r) => setMsgUnread(r.data.count))
+        .catch(() => {});
+    }
+    fetchMsgUnread();
+    const id = setInterval(fetchMsgUnread, 30000);
+    return () => clearInterval(id);
   }, []);
 
   async function createCourse() {
@@ -109,7 +125,28 @@ export default function TeacherDashboard() {
             >
               + New Course
             </button>
+            {/* Messages */}
+            <button
+              onClick={() => setMsgOpen(true)}
+              className="relative grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              aria-label="Messages"
+            >
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {msgUnread > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                  {msgUnread > 99 ? "99+" : msgUnread}
+                </span>
+              )}
+            </button>
             <NotificationBell />
+            <button
+              onClick={() => navigate("/profile")}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Profile
+            </button>
             <button
               onClick={loadAll}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -257,6 +294,14 @@ export default function TeacherDashboard() {
 
         <footer className="mt-10 text-xs text-slate-500">EduWise · Teacher view</footer>
       </div>
+
+      {/* Messages Panel */}
+      {msgOpen && (
+        <MessagesPanel
+          currentUserId={me?.id ?? 0}
+          onClose={() => { setMsgOpen(false); setMsgUnread(0); }}
+        />
+      )}
     </div>
   );
 }

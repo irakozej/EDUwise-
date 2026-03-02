@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import String, Enum, DateTime, func, Boolean
+from sqlalchemy import String, Text, Enum, DateTime, func, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -19,6 +19,9 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

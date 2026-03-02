@@ -245,7 +245,7 @@ export default function TeacherAssignmentGrading() {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          📎 {sub.file_name || "Download file"} →
+                          {sub.file_name || "Download file"}
                         </a>
                       </div>
                     )}
@@ -275,7 +275,7 @@ export default function TeacherAssignmentGrading() {
                           disabled={saving[sub.id]}
                           className="rounded-xl bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                         >
-                          {saving[sub.id] ? "Saving…" : saveSuccess[sub.id] ? "Saved ✓" : "Save Grade"}
+                          {saving[sub.id] ? "Saving…" : saveSuccess[sub.id] ? "Saved" : "Save Grade"}
                         </button>
                       </div>
                       <textarea

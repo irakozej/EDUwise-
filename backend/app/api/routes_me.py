@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.api.deps import require_roles
+from app.api.deps import require_roles, get_current_user
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.enrollment import Enrollment
@@ -11,6 +13,66 @@ from app.models.progress import LessonProgress
 from app.models.quiz import Quiz, QuizAttempt
 
 router = APIRouter()
+
+
+# ── Profile ───────────────────────────────────────────────────────────────────
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+def _profile_out(user: User) -> dict:
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "role": user.role,
+        "bio": user.bio,
+        "avatar_url": user.avatar_url,
+        "created_at": str(user.created_at),
+    }
+
+
+@router.get("/me/profile")
+def get_my_profile(
+    user: User = Depends(get_current_user),
+):
+    return _profile_out(user)
+
+
+@router.patch("/me/profile")
+def update_my_profile(
+    payload: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if payload.full_name is not None:
+        stripped = payload.full_name.strip()
+        if not stripped:
+            raise HTTPException(400, "full_name cannot be empty")
+        user.full_name = stripped
+    if payload.bio is not None:
+        user.bio = payload.bio or None
+    if payload.avatar_url is not None:
+        user.avatar_url = payload.avatar_url or None
+    db.commit()
+    db.refresh(user)
+    return _profile_out(user)
+
+
+@router.get("/users/{user_id}/profile")
+def get_user_profile(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Public profile — any authenticated user can view another's basic info."""
+    target = db.get(User, user_id)
+    if not target or not target.is_active:
+        raise HTTPException(404, "User not found")
+    return _profile_out(target)
 
 @router.get("/me/courses")
 def my_courses_student(

@@ -186,7 +186,7 @@ export default function StudentTakeQuiz() {
 
         {error && (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="font-semibold">❌ {error}</div>
+            <div className="font-semibold">{error}</div>
           </div>
         )}
 
@@ -203,7 +203,7 @@ export default function StudentTakeQuiz() {
               }`}>
                 <div className={`text-lg font-bold ${scorePct !== null && scorePct >= 70 ? "text-emerald-800" : "text-amber-800"}`}>
                   {timeLeft === 0 && autoSubmittedRef.current ? "Time's up! " : ""}
-                  Quiz Submitted ✅
+                  Quiz Submitted
                 </div>
                 <div className="mt-1 text-sm font-medium text-slate-700">
                   Score: <span className="text-xl font-bold">{scorePct ?? 0}%</span>
@@ -257,10 +257,10 @@ export default function StudentTakeQuiz() {
                         <button key={opt} onClick={() => choose(q.id, opt)} className={cls} disabled={submitted}>
                           <span className="mr-2 font-semibold">{opt}.</span> {label}
                           {submitted && result && opt === result.correct_option && (
-                            <span className="ml-2 text-emerald-600">✓</span>
+                            <span className="ml-2 text-xs font-semibold text-emerald-600">Correct</span>
                           )}
                           {submitted && result && isSelected && !result.is_correct && opt === selected && (
-                            <span className="ml-2 text-rose-500">✗</span>
+                            <span className="ml-2 text-xs font-semibold text-rose-500">Your answer</span>
                           )}
                         </button>
                       );

@@ -25,6 +25,7 @@ function typeColor(type: string): string {
   if (type === "assignment_graded") return "bg-emerald-100 text-emerald-700";
   if (type === "announcement") return "bg-amber-100 text-amber-700";
   if (type === "new_assignment") return "bg-sky-100 text-sky-700";
+  if (type === "direct_message") return "bg-violet-100 text-violet-700";
   return "bg-slate-100 text-slate-600";
 }
 
@@ -32,6 +33,7 @@ function typeLabel(type: string): string {
   if (type === "assignment_graded") return "Graded";
   if (type === "announcement") return "Announcement";
   if (type === "new_assignment") return "Assignment";
+  if (type === "direct_message") return "Message";
   return type;
 }
 
@@ -133,7 +135,6 @@ export default function NotificationBell() {
               <div className="px-4 py-6 text-center text-sm text-slate-400">Loading…</div>
             ) : notifications.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
-                <div className="text-2xl mb-2">🔔</div>
                 No notifications yet
               </div>
             ) : (

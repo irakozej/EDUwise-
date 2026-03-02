@@ -11,9 +11,15 @@ from sqlalchemy import func
 from app.api.deps import require_roles
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
+from app.models.assignment import Submission
 from app.models.course import Course
 from app.models.enrollment import Enrollment
-from app.models.quiz import Quiz, QuizAttempt
+from app.models.event import Event
+from app.models.message import Message
+from app.models.notification import Notification
+from app.models.progress import LessonProgress
+from app.models.quiz import Quiz, QuizAttempt, QuizAnswer
+from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserRole
 from app.services.security import hash_password
 from app.services.audit import log_action
@@ -224,6 +230,54 @@ def admin_export_users_csv(
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="users_export.csv"'},
     )
+
+
+@router.delete("/admin/users/{user_id}", status_code=204)
+def admin_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.admin)),
+):
+    """Hard-delete a user. Only super-admin. Cannot delete privileged accounts."""
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target.id == current_user.id:
+        raise HTTPException(400, "Cannot delete your own account")
+    if _is_privileged(target.role):
+        raise HTTPException(403, "Cannot delete admin or co-admin accounts")
+
+    # Delete dependent records in safe order to avoid FK violations
+    # 1. Quiz answers (FK → quiz_attempts)
+    attempt_ids = [a.id for a in db.query(QuizAttempt.id).filter(QuizAttempt.student_id == user_id).all()]
+    if attempt_ids:
+        db.query(QuizAnswer).filter(QuizAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+    db.query(QuizAttempt).filter(QuizAttempt.student_id == user_id).delete(synchronize_session=False)
+
+    # 2. Submissions graded by or submitted by this user
+    db.query(Submission).filter(Submission.student_id == user_id).delete(synchronize_session=False)
+    db.query(Submission).filter(Submission.graded_by == user_id).update(
+        {"graded_by": None}, synchronize_session=False
+    )
+
+    # 3. Enrollments, progress, messages, notifications, events, refresh tokens
+    db.query(Enrollment).filter(Enrollment.student_id == user_id).delete(synchronize_session=False)
+    db.query(LessonProgress).filter(LessonProgress.student_id == user_id).delete(synchronize_session=False)
+    db.query(Message).filter(
+        (Message.sender_id == user_id) | (Message.recipient_id == user_id)
+    ).delete(synchronize_session=False)
+    db.query(Notification).filter(Notification.recipient_id == user_id).delete(synchronize_session=False)
+    db.query(Event).filter(Event.user_id == user_id).delete(synchronize_session=False)
+    db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete(synchronize_session=False)
+
+    # 4. Nullify audit log actors (keep the log but remove the user reference)
+    db.query(AuditLog).filter(AuditLog.actor_user_id == user_id).update(
+        {"actor_user_id": None}, synchronize_session=False
+    )
+
+    log_action(db, current_user.id, "DELETE", "User", str(user_id))
+    db.delete(target)
+    db.commit()
 
 
 # ── Courses ───────────────────────────────────────────────────────────────────

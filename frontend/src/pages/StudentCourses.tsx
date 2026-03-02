@@ -59,7 +59,7 @@ export default function StudentCourses() {
 
         {error && (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="font-semibold">❌ {error}</div>
+            <div className="font-semibold">{error}</div>
           </div>
         )}
 
