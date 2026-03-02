@@ -303,3 +303,21 @@ def admin_activity(
             } if actor else None,
         })
     return result
+
+
+# ── ML Retraining ─────────────────────────────────────────────────────────────
+
+@router.post("/admin/retrain", status_code=202)
+def admin_trigger_retrain(
+    user: User = Depends(require_roles(*_ADMIN_ROLES)),
+):
+    """
+    Manually trigger an immediate model retrain in a background thread.
+    Returns 202 Accepted — check server logs for completion status.
+    """
+    import threading
+    from app.services.retrain import retrain_model_job
+
+    thread = threading.Thread(target=retrain_model_job, daemon=True, name="manual-retrain")
+    thread.start()
+    return {"status": "accepted", "message": "Retraining started in background. Check server logs for results."}

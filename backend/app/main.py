@@ -26,12 +26,32 @@ from app.api.routes_notifications import router as notifications_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── MinIO bucket ─────────────────────────────────────────────────────────
     try:
         from app.services.storage import ensure_bucket
         ensure_bucket()
     except Exception as e:
         print(f"[startup] MinIO bucket init skipped: {e}")
+
+    # ── Periodic ML retraining (every 24 h) ──────────────────────────────────
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from app.services.retrain import retrain_model_job
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler.add_job(
+        retrain_model_job,
+        trigger="interval",
+        hours=24,
+        id="retrain_risk_model",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print("[startup] ML retraining scheduler started — runs every 24 h (UTC)")
+
     yield
+
+    scheduler.shutdown(wait=False)
+    print("[shutdown] ML retraining scheduler stopped")
 
 
 app = FastAPI(title="EduWise API", version="1.0.0", lifespan=lifespan)

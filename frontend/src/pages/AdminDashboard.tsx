@@ -126,6 +126,24 @@ export default function AdminDashboard() {
   const [changingRoleId, setChangingRoleId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
+  // ── ML Retraining ─────────────────────────────────────────────────────────
+  const [retraining, setRetraining] = useState(false);
+  const [retrainMsg, setRetrainMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function triggerRetrain() {
+    setRetraining(true);
+    setRetrainMsg(null);
+    try {
+      await api.post("/api/v1/admin/retrain");
+      setRetrainMsg({ ok: true, text: "Retraining started in background. The model will be updated automatically when done." });
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setRetrainMsg({ ok: false, text: e?.response?.data?.detail || "Failed to trigger retrain" });
+    } finally {
+      setRetraining(false);
+    }
+  }
+
   // ── Create User modal ─────────────────────────────────────────────────────
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -409,6 +427,52 @@ export default function AdminDashboard() {
                       <div className="text-xs font-semibold uppercase tracking-wide text-rose-500">Admins</div>
                       <div className="mt-2 text-4xl font-bold text-rose-900">{stats.users.admins}</div>
                       <div className="mt-1 text-xs text-rose-400">Full access supervisors</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">ML Risk Model</h2>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">At-Risk Prediction Model</div>
+                        <div className="mt-1 text-xs text-slate-500 max-w-md">
+                          The model is automatically retrained every <span className="font-medium">24 hours</span> using live
+                          platform data (progress, quiz scores, engagement events). You can also trigger an
+                          immediate retrain manually — useful after significant new student activity.
+                        </div>
+                        {retrainMsg && (
+                          <div className={`mt-3 text-xs font-medium ${retrainMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                            {retrainMsg.text}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={triggerRetrain}
+                        disabled={retraining}
+                        className="shrink-0 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {retraining ? "Triggering…" : "Retrain Now"}
+                      </button>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="text-slate-400">Schedule</div>
+                        <div className="mt-0.5 font-semibold text-slate-700">Every 24 h</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="text-slate-400">Min. samples</div>
+                        <div className="mt-0.5 font-semibold text-slate-700">20 students</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="text-slate-400">Algorithm</div>
+                        <div className="mt-0.5 font-semibold text-slate-700">Random Forest</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="text-slate-400">Hot-swap</div>
+                        <div className="mt-0.5 font-semibold text-slate-700">No restart needed</div>
+                      </div>
                     </div>
                   </div>
                 </section>
