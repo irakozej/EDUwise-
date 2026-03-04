@@ -1,6 +1,9 @@
 # EDUwise — Intelligent Learning Management System
 
 > **ALU Capstone Project** | A full-stack, AI-augmented LMS designed to go beyond content delivery by predicting at-risk students, personalising the learning journey, and rewarding consistent engagement.
+>
+> Link to the Domo: https://youtu.be/wiRjRDQTW80
+> Link to the deployed product: https://eduwise-chi-ruby.vercel.app/
 
 ---
 
