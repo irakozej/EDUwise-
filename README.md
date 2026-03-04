@@ -415,35 +415,7 @@ git clone <repository-url> eduwise
 cd eduwise
 ```
 
-#### Step 2 — Configure Environment Variables
-
-Open `docker-compose.yml` and fill in the backend `environment` section:
-
-```yaml
-environment:
-  DATABASE_URL: postgresql+psycopg://eduwise:eduwise@db:5432/eduwise
-  JWT_SECRET: "replace-with-a-long-random-secret-at-least-32-chars"
-  JWT_ACCESS_MINUTES: "30"
-  JWT_REFRESH_DAYS: "14"
-  CORS_ORIGINS: "http://localhost:5173"          # comma-separated list for production
-  RISK_MODEL_PATH: /app/app/ml/models/risk_model.joblib
-  MINIO_ENDPOINT: "minio:9000"
-  MINIO_ACCESS_KEY: "minioadmin"                 # change in production
-  MINIO_SECRET_KEY: "minioadmin"                 # change in production
-  MINIO_BUCKET: "eduwise"
-  MINIO_PUBLIC_URL: "http://localhost:9000"      # public-facing URL in production
-  ANTHROPIC_API_KEY: ""                          # paste key to enable AI features
-  # Optional email (for password reset):
-  SMTP_HOST: ""
-  SMTP_PORT: "587"
-  SMTP_USER: ""
-  SMTP_PASS: ""
-  FRONTEND_URL: "http://localhost:5173"          # base URL for reset-password links
-```
-
-> **Security note:** Never commit real secrets to version control. Use a `.env` file or a secrets manager (AWS Secrets Manager, HashiCorp Vault) in production.
-
-#### Step 3 — Start the Infrastructure
+#### Step 2 — Start the Infrastructure
 
 ```bash
 # First time — create named volumes
@@ -466,7 +438,7 @@ eduwise_minio       minio/minio         Up
 eduwise-db-1        postgres:16         Up
 ```
 
-#### Step 4 — Run Database Migrations
+#### Step 3 — Run Database Migrations
 
 ```bash
 docker exec eduwise_backend alembic upgrade head
@@ -483,7 +455,7 @@ print('Schema OK')
 "
 ```
 
-#### Step 5 — Train the ML Model
+#### Step 4 — Train the ML Model
 
 ```bash
 docker exec eduwise_backend python app/ml/train_risk_model.py
@@ -500,7 +472,7 @@ print(predict_risk({'active_courses':1,'avg_progress':50,'completed_lessons':3,'
 # Should print a float between 0 and 1
 ```
 
-#### Step 6 — Create the First Admin Account
+#### Step 5 — Create the First Admin Account
 
 ```bash
 docker exec -it eduwise_backend python -c "
@@ -518,7 +490,7 @@ db.close()
 
 Change the password immediately after first login via the Profile page.
 
-#### Step 7 — Build and Serve the Frontend
+#### Step 6 — Build and Serve the Frontend
 
 **Development (Vite HMR):**
 ```bash
@@ -560,11 +532,11 @@ server {
 }
 ```
 
-#### Step 8 — MinIO Bucket Initialisation
+#### Step 7 — MinIO Bucket Initialisation
 
 The backend automatically calls `ensure_bucket()` at startup, which creates the `eduwise` bucket if it does not exist. Verify via MinIO Console at `http://localhost:9001` (credentials: `minioadmin` / `minioadmin`).
 
-#### Step 9 — Production Hardening Checklist
+#### Step 8 — Production Hardening Checklist
 
 - [ ] Replace `JWT_SECRET` with a cryptographically random 64-character string
 - [ ] Change MinIO credentials from `minioadmin` / `minioadmin`
