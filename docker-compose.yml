@@ -9,61 +9,62 @@ services:
       - "5433:5432"
     volumes:
       - eduwise_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7
     container_name: eduwise_redis
     ports:
       - "6379:6379"
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
     container_name: eduwise_minio
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - minio_data:/minio_data
     command: server /minio_data --console-address ":9001"
+    restart: unless-stopped
 
   backend:
     build: ./backend
     container_name: eduwise_backend
     environment:
-      ENV: dev
+      ENV: ${ENV:-dev}
       DATABASE_URL: postgresql+psycopg://eduwise:eduwise@db:5432/eduwise
-      JWT_SECRET: "dev_secret_change_me"
-      JWT_ACCESS_MINUTES: "30"
-      JWT_REFRESH_DAYS: "14"
-      CORS_ORIGINS: "http://localhost:5173"
-      # Model path (training data auto-detected by train_risk_model.py)
+      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_me_in_production}
+      JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-30}
+      JWT_REFRESH_DAYS: ${JWT_REFRESH_DAYS:-14}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       RISK_MODEL_PATH: /app/app/ml/models/risk_model.joblib
-      # MinIO
       MINIO_ENDPOINT: "minio:9000"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
-      MINIO_BUCKET: "eduwise"
-      MINIO_PUBLIC_URL: "http://localhost:9000"
-      ANTHROPIC_API_KEY: ""
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-eduwise}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      # Mount data/ directory so training datasets are accessible and combined_training.csv can be written
       - ./data:/app/data
     depends_on:
       - db
       - redis
       - minio
+    restart: unless-stopped
 
 volumes:
-  # Use the existing volume from the original setup so all user/course data is preserved
   eduwise_pgdata:
-    external: true
-    name: recursing-lamport_eduwise_pgdata
   minio_data:
-    external: true
-    name: eduwise-_minio_data
