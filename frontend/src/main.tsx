@@ -8,12 +8,15 @@ import StudentCourses from "./pages/StudentCourses";
 import StudentCourseDetail from "./pages/StudentCoursesDetail";
 import StudentQuizzes from "./pages/StudentQuizzes";
 import StudentTakeQuiz from "./pages/StudentTakeQuiz";
+import StudentHistory from "./pages/StudentHistory";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TeacherCourseDetail from "./pages/TeacherCourseDetail";
 import TeacherStudentProgress from "./pages/TeacherStudentProgress";
 import TeacherAssignmentGrading from "./pages/TeacherAssignmentGrading";
 import AdminDashboard from "./pages/AdminDashboard";
 import ProfilePage from "./pages/ProfilePage";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 export function App() {
   return (
@@ -27,6 +30,7 @@ export function App() {
         <Route path="/student/courses/:courseId" element={<StudentCourseDetail />} />
         <Route path="/student/quizzes" element={<StudentQuizzes />} />
         <Route path="/student/quizzes/:quizId" element={<StudentTakeQuiz />} />
+        <Route path="/student/history" element={<StudentHistory />} />
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<TeacherDashboard />} />
@@ -39,6 +43,10 @@ export function App() {
 
         {/* Profile */}
         <Route path="/profile" element={<ProfilePage />} />
+
+        {/* Auth helpers */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

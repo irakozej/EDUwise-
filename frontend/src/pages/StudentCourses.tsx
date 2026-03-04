@@ -13,8 +13,14 @@ type EnrolledCourse = {
   avg_quiz_score: number | null;
 };
 
+type PrereqStatus = {
+  met: boolean;
+  missing: { course_id: number; title: string; progress_pct: number }[];
+};
+
 export default function StudentCourses() {
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
+  const [prereqStatus, setPrereqStatus] = useState<Record<number, PrereqStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -31,7 +37,20 @@ export default function StudentCourses() {
       setError("");
       try {
         const res = await api.get<{ items: EnrolledCourse[] }>("/api/v1/me/courses");
-        setCourses(res.data.items);
+        const items = res.data.items;
+        setCourses(items);
+        // Fetch prereq status for each course in parallel (non-blocking)
+        const statuses = await Promise.allSettled(
+          items.map((c) =>
+            api.get<PrereqStatus>(`/api/v1/courses/${c.course_id}/prerequisite-status`)
+              .then((r) => ({ id: c.course_id, data: r.data }))
+          )
+        );
+        const map: Record<number, PrereqStatus> = {};
+        statuses.forEach((s) => {
+          if (s.status === "fulfilled") map[s.value.id] = s.value.data;
+        });
+        setPrereqStatus(map);
       } catch (err: unknown) {
         const e = err as { response?: { data?: { detail?: string } }; message?: string };
         setError(e?.response?.data?.detail || e?.message || "Failed to load courses");
@@ -86,6 +105,12 @@ export default function StudentCourses() {
                 className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-300 transition"
               >
                 <div className="text-sm font-semibold text-slate-900">{c.title}</div>
+                {prereqStatus[c.course_id] && !prereqStatus[c.course_id].met && (
+                  <div className="mt-1.5 flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 w-fit">
+                    <span>⚠️</span>
+                    <span>Finish <b>{prereqStatus[c.course_id].missing[0]?.title}</b> first</span>
+                  </div>
+                )}
                 <div className="mt-1 text-sm text-slate-500 line-clamp-2">
                   {c.description || "No description"}
                 </div>

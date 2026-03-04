@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
@@ -56,6 +56,8 @@ type Comment = {
   body: string;
   created_at: string;
 };
+type LeaderboardEntry = { rank: number; student_name: string; total_xp: number; level: number; is_me: boolean };
+type PeerReviewItem = { peer_review_id: number; assignment_title: string; course_title: string; submission_snippet: string | null };
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -93,8 +95,25 @@ export default function StudentCourseDetail() {
   const [submitError, setSubmitError] = useState<Record<number, string>>({});
 
   // Per-lesson active tab
-  type LessonTab = "overview" | "resources" | "quizzes" | "assignments" | "discussion";
+  type LessonTab = "overview" | "resources" | "quizzes" | "assignments" | "discussion" | "notes";
   const [lessonTab, setLessonTab] = useState<Record<number, LessonTab>>({});
+
+  // Notes state per lesson
+  const [notesByLesson, setNotesByLesson] = useState<Record<number, string>>({});
+  const [noteSaving, setNoteSaving] = useState<Record<number, boolean>>({});
+  const noteDebounceRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const [noteLoaded, setNoteLoaded] = useState<Record<number, boolean>>({});
+
+  // Leaderboard
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+
+  // Peer reviews to do
+  const [pendingReviews, setPendingReviews] = useState<PeerReviewItem[]>([]);
+  const [reviewScore, setReviewScore] = useState<Record<number, string>>({});
+  const [reviewFeedback, setReviewFeedback] = useState<Record<number, string>>({});
+  const [submittingReview, setSubmittingReview] = useState<Record<number, boolean>>({});
+  const [reviewSubmitted, setReviewSubmitted] = useState<Record<number, boolean>>({});
+
 
   // Discussion state per lesson
   const [commentsByLesson, setCommentsByLesson] = useState<Record<number, Comment[]>>({});
@@ -109,6 +128,45 @@ export default function StudentCourseDetail() {
       setCommentsByLesson((p) => ({ ...p, [lesson_id]: res.data || [] }));
       setLoadedDiscussion((p) => ({ ...p, [lesson_id]: true }));
     } catch { /* ignore */ }
+  }
+
+  async function loadNote(lesson_id: number) {
+    if (noteLoaded[lesson_id]) return;
+    try {
+      const res = await api.get<{ content_html: string | null }>(`/api/v1/me/notes/${lesson_id}`);
+      setNotesByLesson((p) => ({ ...p, [lesson_id]: res.data.content_html ?? "" }));
+    } catch { /* ignore */ } finally {
+      setNoteLoaded((p) => ({ ...p, [lesson_id]: true }));
+    }
+  }
+
+  function saveNote(lesson_id: number, html: string) {
+    setNoteSaving((p) => ({ ...p, [lesson_id]: true }));
+    api.put(`/api/v1/me/notes/${lesson_id}`, { content_html: html })
+      .catch(() => {})
+      .finally(() => setNoteSaving((p) => ({ ...p, [lesson_id]: false })));
+  }
+
+  function handleNoteChange(lesson_id: number, html: string) {
+    setNotesByLesson((p) => ({ ...p, [lesson_id]: html }));
+    clearTimeout(noteDebounceRef.current[lesson_id]);
+    noteDebounceRef.current[lesson_id] = setTimeout(() => saveNote(lesson_id, html), 1000);
+  }
+
+  async function submitPeerReview(peer_review_id: number) {
+    const score = parseInt(reviewScore[peer_review_id] ?? "");
+    if (isNaN(score) || score < 0 || score > 100) return;
+    setSubmittingReview((p) => ({ ...p, [peer_review_id]: true }));
+    try {
+      await api.post(`/api/v1/peer-reviews/${peer_review_id}/submit`, {
+        score,
+        feedback: reviewFeedback[peer_review_id] ?? "",
+      });
+      setReviewSubmitted((p) => ({ ...p, [peer_review_id]: true }));
+      setPendingReviews((prev) => prev.filter((r) => r.peer_review_id !== peer_review_id));
+    } catch { /* ignore */ } finally {
+      setSubmittingReview((p) => ({ ...p, [peer_review_id]: false }));
+    }
   }
 
   async function postComment(lesson_id: number) {
@@ -184,11 +242,15 @@ export default function StudentCourseDetail() {
         setQuizzesByLesson(quizMap);
         setAssignmentsByLesson(assignMap);
 
-        // Load announcements
-        try {
-          const annRes = await api.get<Announcement[]>(`/api/v1/courses/${course_id}/announcements`);
-          setAnnouncements(annRes.data || []);
-        } catch { /* silently ignore */ }
+        // Load announcements, leaderboard, and pending peer reviews in parallel
+        await Promise.allSettled([
+          api.get<Announcement[]>(`/api/v1/courses/${course_id}/announcements`)
+            .then((r) => setAnnouncements(r.data || [])),
+          api.get<LeaderboardEntry[]>(`/api/v1/courses/${course_id}/leaderboard`)
+            .then((r) => setLeaderboard(r.data || [])),
+          api.get<PeerReviewItem[]>("/api/v1/me/peer-reviews-pending")
+            .then((r) => setPendingReviews(r.data || [])),
+        ]);
 
         // Load existing submissions for all assignments
         const allAssignments = Object.values(assignMap).flat();
@@ -330,6 +392,74 @@ export default function StudentCourseDetail() {
           </div>
         )}
 
+        {/* Pending Peer Reviews */}
+        {pendingReviews.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <h3 className="text-sm font-semibold text-amber-900 mb-3">📝 Peer Reviews to Complete ({pendingReviews.length})</h3>
+            <div className="space-y-3">
+              {pendingReviews.map((pr) => (
+                <div key={pr.peer_review_id} className="rounded-2xl border border-amber-100 bg-white p-4 space-y-2">
+                  <div className="text-xs font-semibold text-slate-800">{pr.assignment_title}</div>
+                  {pr.submission_snippet && (
+                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 line-clamp-3">{pr.submission_snippet}</div>
+                  )}
+                  {reviewSubmitted[pr.peer_review_id] ? (
+                    <div className="text-xs text-emerald-600 font-medium">✓ Review submitted</div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-slate-500 shrink-0">Score (0–100):</label>
+                        <input
+                          type="number" min={0} max={100}
+                          value={reviewScore[pr.peer_review_id] ?? ""}
+                          onChange={(e) => setReviewScore((p) => ({ ...p, [pr.peer_review_id]: e.target.value }))}
+                          className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
+                        />
+                      </div>
+                      <textarea
+                        value={reviewFeedback[pr.peer_review_id] ?? ""}
+                        onChange={(e) => setReviewFeedback((p) => ({ ...p, [pr.peer_review_id]: e.target.value }))}
+                        placeholder="Feedback (optional)"
+                        rows={2}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none resize-none"
+                      />
+                      <button
+                        onClick={() => submitPeerReview(pr.peer_review_id)}
+                        disabled={submittingReview[pr.peer_review_id] || !(reviewScore[pr.peer_review_id] ?? "").trim()}
+                        className="rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                      >
+                        {submittingReview[pr.peer_review_id] ? "Submitting…" : "Submit Review"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Leaderboard */}
+        {leaderboard.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">🏆 Course Leaderboard</h3>
+            <div className="space-y-1">
+              {leaderboard.map((entry) => (
+                <div
+                  key={entry.rank}
+                  className={`flex items-center gap-3 py-2 px-3 rounded-xl ${entry.is_me ? "bg-sky-50 border border-sky-200" : ""}`}
+                >
+                  <span className="text-sm font-bold text-slate-400 w-6">#{entry.rank}</span>
+                  <span className={`flex-1 text-sm ${entry.is_me ? "font-semibold text-sky-700" : "text-slate-700"}`}>
+                    {entry.student_name}{entry.is_me ? " (you)" : ""}
+                  </span>
+                  <span className="text-xs text-amber-600 font-medium">⭐ {entry.total_xp} XP</span>
+                  <span className="text-xs text-slate-400">Lv.{entry.level}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
             <div className="font-semibold">{error}</div>
@@ -369,6 +499,7 @@ export default function StudentCourseDetail() {
                       { key: "quizzes",     label: "Quizzes",     count: quizzes.length },
                       { key: "assignments", label: "Assignments",  count: assignments.length },
                       { key: "discussion",  label: "Discussion" },
+                      { key: "notes",       label: "Notes" },
                     ];
 
                     return (
@@ -390,7 +521,11 @@ export default function StudentCourseDetail() {
                           {tabs.map((t) => (
                             <button
                               key={t.key}
-                              onClick={() => setLessonTab((p) => ({ ...p, [lesson.id]: t.key }))}
+                              onClick={() => {
+                                setLessonTab((p) => ({ ...p, [lesson.id]: t.key }));
+                                if (t.key === "notes") loadNote(lesson.id);
+                                if (t.key === "discussion") loadComments(lesson.id);
+                              }}
                               className={`flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition border-b-2 ${
                                 activeTab === t.key
                                   ? "border-sky-500 text-sky-700 bg-sky-50/50"
@@ -599,6 +734,21 @@ export default function StudentCourseDetail() {
                                     );
                                   })}
                                 </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── Discussion ── */}
+                          {/* ── Notes ── */}
+                          {activeTab === "notes" && (
+                            <div className="space-y-2">
+                              <p className="text-xs text-slate-500">Your private notes — only you can see these.</p>
+                              <RichEditor
+                                value={notesByLesson[lesson.id] ?? ""}
+                                onChange={(html) => handleNoteChange(lesson.id, html)}
+                              />
+                              {noteSaving[lesson.id] && (
+                                <p className="text-xs text-slate-400">Saving…</p>
                               )}
                             </div>
                           )}

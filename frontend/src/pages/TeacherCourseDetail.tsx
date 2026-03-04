@@ -14,9 +14,11 @@ type Module = { id: number; course_id: number; title: string; order_index: numbe
 type Lesson = { id: number; module_id: number; title: string; content: string | null; order_index: number };
 type Resource = { id: number; lesson_id: number; title: string; resource_type: string; url: string | null; topic: string | null; difficulty: string | null; format: string | null };
 type Quiz = { id: number; lesson_id: number; title: string; is_published: boolean };
-type Assignment = { id: number; lesson_id: number; title: string; description: string | null; due_date: string | null; max_score: number };
+type Assignment = { id: number; lesson_id: number; title: string; description: string | null; due_date: string | null; max_score: number; peer_review_enabled: boolean; num_reviewers: number };
+type AiQuestion = { question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_option: string };
 type Question = { id: number; quiz_id: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_option: string; topic: string | null; difficulty: string | null };
 type Enrollment = { student: { id: number; full_name: string; email: string }; status: string };
+type PrereqItem = { id: number; prerequisite_course_id: number; prerequisite_title: string };
 type Analytics = {
   course: { id: number; title: string; teacher_id: number };
   enrollments_active: number;
@@ -125,6 +127,7 @@ export default function TeacherCourseDetail() {
   const [questionsByQuiz, setQuestionsByQuiz] = useState<Record<number, Question[]>>({});
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -175,6 +178,18 @@ export default function TeacherCourseDetail() {
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [questionError, setQuestionError] = useState("");
 
+  // AI question generation
+  const [aiGenerating, setAiGenerating] = useState<Record<number, boolean>>({});
+  const [aiPreview, setAiPreview] = useState<{ quizId: number; lessonId: number; questions: AiQuestion[] } | null>(null);
+  const [aiError, setAiError] = useState<Record<number, string>>({});
+  const [aiApproving, setAiApproving] = useState<Record<number, boolean>>({});
+
+  // Peer review per-assignment
+  const [newAssignPeerReview, setNewAssignPeerReview] = useState(false);
+  const [newAssignNumReviewers, setNewAssignNumReviewers] = useState("2");
+  const [assigningPeerReview, setAssigningPeerReview] = useState<number | null>(null);
+  const [peerAssignMsg, setPeerAssignMsg] = useState<Record<number, string>>({});
+
   // Remove student confirm
   const [removingStudent, setRemovingStudent] = useState<number | null>(null);
 
@@ -219,6 +234,20 @@ export default function TeacherCourseDetail() {
   const [loadingAtRisk, setLoadingAtRisk] = useState(false);
   const [atRiskLoaded, setAtRiskLoaded] = useState(false);
 
+  // Inline edit state
+  const [editingModuleId, setEditingModuleId] = useState<number | null>(null);
+  const [editModuleTitle, setEditModuleTitle] = useState("");
+  const [editingLessonId, setEditingLessonId] = useState<number | null>(null);
+  const [editLessonTitle, setEditLessonTitle] = useState("");
+  const [editLessonContent, setEditLessonContent] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Prerequisites
+  const [prereqs, setPrereqs] = useState<PrereqItem[]>([]);
+  const [selectedPrereqId, setSelectedPrereqId] = useState("");
+  const [addingPrereq, setAddingPrereq] = useState(false);
+  const [prereqMsg, setPrereqMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Messages
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgPartnerId, setMsgPartnerId] = useState<number | undefined>(undefined);
@@ -228,6 +257,7 @@ export default function TeacherCourseDetail() {
 
   const loadCourse = useCallback(async () => {
     const all = await api.get<Course[]>("/api/v1/courses");
+    setAllCourses(all.data);
     const found = all.data.find((c) => c.id === id);
     if (found) setCourse(found);
   }, [id]);
@@ -270,6 +300,11 @@ export default function TeacherCourseDetail() {
     setAnnouncements(res.data || []);
   }, [id]);
 
+  const loadPrerequisites = useCallback(async () => {
+    const res = await api.get<PrereqItem[]>(`/api/v1/courses/${id}/prerequisites`);
+    setPrereqs(res.data || []);
+  }, [id]);
+
   const loadEnrollments = useCallback(async () => {
     const res = await api.get<Enrollment[]>(`/api/v1/teacher/courses/${id}/enrollments`);
     setEnrollments(res.data);
@@ -284,7 +319,7 @@ export default function TeacherCourseDetail() {
     setLoading(true);
     setError("");
     try {
-      await Promise.all([loadCourse(), loadModules(), loadEnrollments(), loadAnalytics(), loadAnnouncements()]);
+      await Promise.all([loadCourse(), loadModules(), loadEnrollments(), loadAnalytics(), loadAnnouncements(), loadPrerequisites()]);
         } catch (err: unknown) {
           const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setError(e?.response?.data?.detail || e?.message || "Failed to load course");
@@ -348,6 +383,32 @@ export default function TeacherCourseDetail() {
   }
 
   // ── CRUD actions ───────────────────────────────────────────────────────────
+
+  async function addPrereq() {
+    if (!selectedPrereqId) return;
+    setAddingPrereq(true); setPrereqMsg(null);
+    try {
+      await api.post(`/api/v1/courses/${id}/prerequisites`, { prerequisite_course_id: Number(selectedPrereqId) });
+      setSelectedPrereqId("");
+      await loadPrerequisites();
+      setPrereqMsg({ ok: true, text: "Prerequisite added." });
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setPrereqMsg({ ok: false, text: e?.response?.data?.detail || "Failed to add prerequisite" });
+    } finally {
+      setAddingPrereq(false);
+    }
+  }
+
+  async function removePrereq(prereqCourseId: number) {
+    try {
+      await api.delete(`/api/v1/courses/${id}/prerequisites/${prereqCourseId}`);
+      await loadPrerequisites();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setPrereqMsg({ ok: false, text: e?.response?.data?.detail || "Failed to remove prerequisite" });
+    }
+  }
 
   async function addModule() {
     if (!newModuleTitle.trim()) return;
@@ -423,8 +484,11 @@ export default function TeacherCourseDetail() {
         description: newAssignDesc.trim() || null,
         due_date: newAssignDue || null,
         max_score: parseInt(newAssignMax) || 100,
+        peer_review_enabled: newAssignPeerReview,
+        num_reviewers: parseInt(newAssignNumReviewers) || 2,
       });
       setNewAssignTitle(""); setNewAssignDesc(""); setNewAssignDue(""); setNewAssignMax("100");
+      setNewAssignPeerReview(false); setNewAssignNumReviewers("2");
       setAddAssignmentForLesson(null);
       await loadAssignmentsForLesson(lessonId);
     } catch (err: unknown) {
@@ -454,6 +518,69 @@ export default function TeacherCourseDetail() {
           const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setQuestionError(e?.response?.data?.detail || "Failed to add question");
     } finally { setSavingQuestion(false); }
+  }
+
+  async function doGenerateAI(quizId: number, lessonId: number) {
+    setAiGenerating((prev) => ({ ...prev, [quizId]: true }));
+    setAiError((prev) => ({ ...prev, [quizId]: "" }));
+    try {
+      const res = await api.post<{ questions: AiQuestion[] }>(`/api/v1/lessons/${lessonId}/ai-generate-questions?count=5`);
+      setAiPreview({ quizId, lessonId, questions: res.data.questions });
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string }; status?: number }; message?: string };
+      const status = e?.response?.status;
+      const msg = status === 503 ? "AI not configured (set ANTHROPIC_API_KEY)" :
+                  status === 400 ? "Lesson content too short (need 100+ chars)" :
+                  e?.response?.data?.detail || "AI generation failed — try again";
+      setAiError((prev) => ({ ...prev, [quizId]: msg }));
+    } finally {
+      setAiGenerating((prev) => ({ ...prev, [quizId]: false }));
+    }
+  }
+
+  async function approveAiQuestion(quizId: number, q: AiQuestion, idx: number) {
+    setAiApproving((prev) => ({ ...prev, [idx]: true }));
+    try {
+      await api.post(`/api/v1/quizzes/${quizId}/questions`, {
+        question_text: q.question_text,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
+        correct_option: q.correct_option,
+      });
+      await loadQuestionsForQuiz(quizId);
+      setAiPreview((prev) => {
+        if (!prev) return null;
+        const updated = prev.questions.filter((_, i) => i !== idx);
+        return updated.length === 0 ? null : { ...prev, questions: updated };
+      });
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setAiApproving((prev) => ({ ...prev, [idx]: false }));
+    }
+  }
+
+  async function approveAllAiQuestions(quizId: number) {
+    if (!aiPreview) return;
+    for (let i = 0; i < aiPreview.questions.length; i++) {
+      await approveAiQuestion(quizId, aiPreview.questions[i], i);
+    }
+    setAiPreview(null);
+  }
+
+  async function doPeerReviewAssign(assignmentId: number) {
+    setAssigningPeerReview(assignmentId);
+    try {
+      const res = await api.post<{ assigned: number }>(`/api/v1/assignments/${assignmentId}/peer-review/assign`);
+      setPeerAssignMsg((prev) => ({ ...prev, [assignmentId]: `${res.data.assigned} peer reviews assigned!` }));
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setPeerAssignMsg((prev) => ({ ...prev, [assignmentId]: e?.response?.data?.detail || "Failed to assign" }));
+    } finally {
+      setAssigningPeerReview(null);
+    }
   }
 
   async function togglePublish(quiz: Quiz) {
@@ -507,6 +634,94 @@ export default function TeacherCourseDetail() {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       alert(e?.response?.data?.detail || "Failed to delete announcement");
     }
+  }
+
+  // ── Edit / Delete actions ──────────────────────────────────────────────────
+
+  function errMsg(err: unknown) {
+    const e = err as { response?: { data?: { detail?: string } }; message?: string };
+    return e?.response?.data?.detail || e?.message || "Operation failed";
+  }
+
+  async function doUpdateModule(mod: Module) {
+    if (!editModuleTitle.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await api.patch<Module>(`/api/v1/modules/${mod.id}`, { title: editModuleTitle.trim(), order_index: mod.order_index });
+      setModules((prev) => prev.map((m) => m.id === mod.id ? res.data : m));
+      setEditingModuleId(null);
+    } catch (err) { alert(errMsg(err)); } finally { setSavingEdit(false); }
+  }
+
+  async function doDeleteModule(moduleId: number) {
+    if (!confirm("Delete this module and all its lessons? This cannot be undone.")) return;
+    try {
+      await api.delete(`/api/v1/modules/${moduleId}`);
+      setModules((prev) => prev.filter((m) => m.id !== moduleId));
+      setLessonsByModule((prev) => { const n = { ...prev }; delete n[moduleId]; return n; });
+    } catch (err) { alert(errMsg(err)); }
+  }
+
+  async function doUpdateLesson(lesson: Lesson) {
+    if (!editLessonTitle.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await api.patch<Lesson>(`/api/v1/lessons/${lesson.id}`, {
+        title: editLessonTitle.trim(),
+        content: editLessonContent || null,
+        order_index: lesson.order_index,
+      });
+      setLessonsByModule((prev) => ({
+        ...prev,
+        [lesson.module_id]: (prev[lesson.module_id] ?? []).map((l) => l.id === lesson.id ? res.data : l),
+      }));
+      setEditingLessonId(null);
+    } catch (err) { alert(errMsg(err)); } finally { setSavingEdit(false); }
+  }
+
+  async function doDeleteLesson(lesson: Lesson) {
+    if (!confirm("Delete this lesson and all its content? This cannot be undone.")) return;
+    try {
+      await api.delete(`/api/v1/lessons/${lesson.id}`);
+      setLessonsByModule((prev) => ({
+        ...prev,
+        [lesson.module_id]: (prev[lesson.module_id] ?? []).filter((l) => l.id !== lesson.id),
+      }));
+    } catch (err) { alert(errMsg(err)); }
+  }
+
+  async function doDeleteResource(resourceId: number, lessonId: number) {
+    if (!confirm("Delete this resource?")) return;
+    try {
+      await api.delete(`/api/v1/resources/${resourceId}`);
+      setResourcesByLesson((prev) => ({
+        ...prev,
+        [lessonId]: (prev[lessonId] ?? []).filter((r) => r.id !== resourceId),
+      }));
+    } catch (err) { alert(errMsg(err)); }
+  }
+
+  async function doDeleteQuiz(quizId: number, lessonId: number) {
+    if (!confirm("Delete this quiz and all its questions? This cannot be undone.")) return;
+    try {
+      await api.delete(`/api/v1/quizzes/${quizId}`);
+      setQuizzesByLesson((prev) => ({
+        ...prev,
+        [lessonId]: (prev[lessonId] ?? []).filter((q) => q.id !== quizId),
+      }));
+      setQuestionsByQuiz((prev) => { const n = { ...prev }; delete n[quizId]; return n; });
+    } catch (err) { alert(errMsg(err)); }
+  }
+
+  async function doDeleteQuestion(questionId: number, quizId: number) {
+    if (!confirm("Delete this question?")) return;
+    try {
+      await api.delete(`/api/v1/quiz-questions/${questionId}`);
+      setQuestionsByQuiz((prev) => ({
+        ...prev,
+        [quizId]: (prev[quizId] ?? []).filter((q) => q.id !== questionId),
+      }));
+    } catch (err) { alert(errMsg(err)); }
   }
 
   // ── Discussion ─────────────────────────────────────────────────────────────
@@ -723,19 +938,40 @@ export default function TeacherCourseDetail() {
             {modules.map((mod) => (
               <div key={mod.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                 {/* Module header */}
-                <button
-                  onClick={() => toggleModule(mod.id)}
-                  className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50 transition"
-                >
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-5 py-3 hover:bg-slate-50 transition">
+                  <button onClick={() => toggleModule(mod.id)} className="flex items-center gap-3 flex-1 text-left min-w-0">
                     <span className="text-slate-400 text-xs">{expandedModules.has(mod.id) ? "▾" : "▸"}</span>
-                    <span className="font-semibold text-slate-900">{mod.title}</span>
-                    <span className="text-xs text-slate-400">
-                      {lessonsByModule[mod.id]?.length ?? "?"} lessons
-                    </span>
+                    <span className="font-semibold text-slate-900 truncate">{mod.title}</span>
+                    <span className="text-xs text-slate-400 shrink-0">{lessonsByModule[mod.id]?.length ?? "?"} lessons</span>
+                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-slate-400">Module {mod.order_index}</span>
+                    <button
+                      onClick={() => { setEditingModuleId(mod.id); setEditModuleTitle(mod.title); }}
+                      className="text-xs text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded hover:bg-slate-100"
+                      title="Rename module"
+                    >Edit</button>
+                    <button
+                      onClick={() => doDeleteModule(mod.id)}
+                      className="text-xs text-rose-400 hover:text-rose-600 px-1.5 py-0.5 rounded hover:bg-rose-50"
+                      title="Delete module"
+                    >Del</button>
                   </div>
-                  <span className="text-xs text-slate-400">Module {mod.order_index}</span>
-                </button>
+                </div>
+                {editingModuleId === mod.id && (
+                  <div className="border-t border-slate-100 px-5 py-3 bg-slate-50 flex gap-2 items-center">
+                    <input
+                      value={editModuleTitle}
+                      onChange={(e) => setEditModuleTitle(e.target.value)}
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400"
+                      placeholder="Module title"
+                    />
+                    <button onClick={() => doUpdateModule(mod)} disabled={savingEdit} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                      {savingEdit ? "…" : "Save"}
+                    </button>
+                    <button onClick={() => setEditingModuleId(null)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100">Cancel</button>
+                  </div>
+                )}
 
                 {expandedModules.has(mod.id) && (
                   <div className="border-t border-slate-100 px-5 pb-4">
@@ -743,16 +979,40 @@ export default function TeacherCourseDetail() {
                       {(lessonsByModule[mod.id] ?? []).map((lesson) => (
                         <div key={lesson.id} className="rounded-xl border border-slate-200 overflow-hidden">
                           {/* Lesson header */}
-                          <button
-                            onClick={() => toggleLesson(lesson.id)}
-                            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition"
-                          >
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 px-4 py-2.5 hover:bg-slate-50 transition">
+                            <button onClick={() => toggleLesson(lesson.id)} className="flex items-center gap-2 flex-1 text-left min-w-0">
                               <span className="text-slate-400 text-xs">{expandedLessons.has(lesson.id) ? "▾" : "▸"}</span>
-                              <span className="text-sm font-medium text-slate-800">{lesson.title}</span>
+                              <span className="text-sm font-medium text-slate-800 truncate">{lesson.title}</span>
+                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-xs text-slate-400">#{lesson.order_index}</span>
+                              <button
+                                onClick={() => { setEditingLessonId(lesson.id); setEditLessonTitle(lesson.title); setEditLessonContent(lesson.content || ""); }}
+                                className="text-xs text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded hover:bg-slate-100"
+                              >Edit</button>
+                              <button
+                                onClick={() => doDeleteLesson(lesson)}
+                                className="text-xs text-rose-400 hover:text-rose-600 px-1.5 py-0.5 rounded hover:bg-rose-50"
+                              >Del</button>
                             </div>
-                            <span className="text-xs text-slate-400">Lesson {lesson.order_index}</span>
-                          </button>
+                          </div>
+                          {editingLessonId === lesson.id && (
+                            <div className="border-t border-slate-100 px-4 py-3 bg-slate-50 space-y-2">
+                              <input
+                                value={editLessonTitle}
+                                onChange={(e) => setEditLessonTitle(e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-400"
+                                placeholder="Lesson title"
+                              />
+                              <RichEditor value={editLessonContent} onChange={setEditLessonContent} />
+                              <div className="flex gap-2">
+                                <button onClick={() => doUpdateLesson(lesson)} disabled={savingEdit} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+                                  {savingEdit ? "Saving…" : "Save"}
+                                </button>
+                                <button onClick={() => setEditingLessonId(null)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100">Cancel</button>
+                              </div>
+                            </div>
+                          )}
 
                           {expandedLessons.has(lesson.id) && (
                             <div className="border-t border-slate-100 bg-slate-50 px-4 pb-4">
@@ -787,11 +1047,18 @@ export default function TeacherCourseDetail() {
                                             {r.difficulty && <span className="text-xs text-slate-400">· {r.difficulty}</span>}
                                           </div>
                                         </div>
-                                        {r.url && (
-                                          <a href={r.url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-slate-500 hover:text-slate-900 underline ml-2">
-                                            Open
-                                          </a>
-                                        )}
+                                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                                          {r.url && (
+                                            <a href={r.url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-900 underline">
+                                              Open
+                                            </a>
+                                          )}
+                                          <button
+                                            onClick={() => doDeleteResource(r.id, lesson.id)}
+                                            className="text-xs text-rose-400 hover:text-rose-600 px-1 py-0.5 rounded hover:bg-rose-50"
+                                            title="Delete resource"
+                                          >✕</button>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -885,6 +1152,11 @@ export default function TeacherCourseDetail() {
                                             >
                                               {quiz.is_published ? "Unpublish" : "Publish"}
                                             </button>
+                                            <button
+                                              onClick={() => doDeleteQuiz(quiz.id, lesson.id)}
+                                              className="text-xs text-rose-400 hover:text-rose-600 px-1 py-0.5 rounded hover:bg-rose-50"
+                                              title="Delete quiz"
+                                            >✕</button>
                                           </div>
                                         </div>
 
@@ -892,17 +1164,84 @@ export default function TeacherCourseDetail() {
                                           <div className="border-t border-slate-100 bg-slate-50 px-3 pb-3">
                                             <div className="flex items-center justify-between mt-2 mb-1">
                                               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Questions ({(questionsByQuiz[quiz.id] ?? []).length})</span>
-                                              <button
-                                                onClick={() => setAddQuestionForQuiz(quiz.id)}
-                                                className="text-xs text-slate-600 hover:text-slate-900 underline"
-                                              >
-                                                + Add Question
-                                              </button>
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  onClick={() => doGenerateAI(quiz.id, lesson.id)}
+                                                  disabled={aiGenerating[quiz.id]}
+                                                  className="text-xs text-violet-600 hover:text-violet-800 font-medium disabled:opacity-50"
+                                                >
+                                                  {aiGenerating[quiz.id] ? "Generating…" : "✨ Generate with AI"}
+                                                </button>
+                                                <button
+                                                  onClick={() => setAddQuestionForQuiz(quiz.id)}
+                                                  className="text-xs text-slate-600 hover:text-slate-900 underline"
+                                                >
+                                                  + Add Question
+                                                </button>
+                                              </div>
                                             </div>
+                                            {aiError[quiz.id] && (
+                                              <div className="mb-2 text-xs text-rose-600">{aiError[quiz.id]}</div>
+                                            )}
+                                            {aiPreview && aiPreview.quizId === quiz.id && (
+                                              <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50 p-3 space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                  <span className="text-xs font-semibold text-violet-700">AI-generated questions ({aiPreview.questions.length})</span>
+                                                  <div className="flex gap-2">
+                                                    <button
+                                                      onClick={() => approveAllAiQuestions(quiz.id)}
+                                                      className="rounded-xl bg-violet-600 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-700"
+                                                    >
+                                                      Add All
+                                                    </button>
+                                                    <button
+                                                      onClick={() => setAiPreview(null)}
+                                                      className="rounded-xl border border-violet-200 px-3 py-1 text-xs text-violet-600 hover:bg-violet-100"
+                                                    >
+                                                      Dismiss
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                                {aiPreview.questions.map((q, idx) => (
+                                                  <div key={idx} className="rounded-xl border border-violet-100 bg-white p-2.5 space-y-1.5">
+                                                    <div className="text-xs font-medium text-slate-800">{q.question_text}</div>
+                                                    <div className="grid grid-cols-2 gap-1">
+                                                      {(["a","b","c","d"] as const).map((opt) => (
+                                                        <div key={opt} className={`text-xs rounded-lg px-2 py-1 ${q.correct_option.toLowerCase() === opt ? "bg-emerald-50 text-emerald-700 font-semibold" : "bg-slate-50 text-slate-600"}`}>
+                                                          {opt.toUpperCase()}. {q[`option_${opt}` as keyof AiQuestion]}
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                      <button
+                                                        onClick={() => approveAiQuestion(quiz.id, q, idx)}
+                                                        disabled={aiApproving[idx]}
+                                                        className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                      >
+                                                        {aiApproving[idx] ? "Adding…" : "✓ Add"}
+                                                      </button>
+                                                      <button
+                                                        onClick={() => setAiPreview((prev) => prev ? { ...prev, questions: prev.questions.filter((_, i) => i !== idx) } : null)}
+                                                        className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                                                      >
+                                                        ✗ Skip
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
 
                                             {(questionsByQuiz[quiz.id] ?? []).map((q, idx) => (
                                               <div key={q.id} className="mt-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                                <div className="text-xs font-medium text-slate-800">Q{idx + 1}. {q.question_text}</div>
+                                                <div className="flex items-start justify-between gap-2">
+                                                  <div className="text-xs font-medium text-slate-800">Q{idx + 1}. {q.question_text}</div>
+                                                  <button
+                                                    onClick={() => doDeleteQuestion(q.id, quiz.id)}
+                                                    className="shrink-0 text-xs text-rose-400 hover:text-rose-600 px-1 py-0.5 rounded hover:bg-rose-50"
+                                                    title="Delete question"
+                                                  >✕</button>
+                                                </div>
                                                 <div className="mt-1 grid grid-cols-2 gap-1">
                                                   {(["A", "B", "C", "D"] as const).map((opt) => (
                                                     <div
@@ -1004,22 +1343,41 @@ export default function TeacherCourseDetail() {
                                 ) : (
                                   <div className="space-y-1">
                                     {(assignmentsByLesson[lesson.id] ?? []).map((a) => (
-                                      <div key={a.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                        <div className="min-w-0">
-                                          <span className="text-xs font-medium text-slate-800 truncate">{a.title}</span>
-                                          <div className="flex gap-2 mt-0.5">
-                                            <span className="text-xs text-slate-400">Max: {a.max_score} pts</span>
-                                            {a.due_date && (
-                                              <span className="text-xs text-slate-400">· Due: {new Date(a.due_date).toLocaleDateString()}</span>
+                                      <div key={a.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                        <div className="flex items-center justify-between">
+                                          <div className="min-w-0">
+                                            <span className="text-xs font-medium text-slate-800 truncate">{a.title}</span>
+                                            <div className="flex gap-2 mt-0.5">
+                                              <span className="text-xs text-slate-400">Max: {a.max_score} pts</span>
+                                              {a.due_date && (
+                                                <span className="text-xs text-slate-400">· Due: {new Date(a.due_date).toLocaleDateString()}</span>
+                                              )}
+                                              {a.peer_review_enabled && (
+                                                <span className="text-xs text-violet-500 font-medium">· Peer review ({a.num_reviewers})</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <Link
+                                            to={`/teacher/assignments/${a.id}/grade`}
+                                            className="shrink-0 text-xs text-slate-500 hover:text-slate-900 underline ml-2"
+                                          >
+                                            Grade →
+                                          </Link>
+                                        </div>
+                                        {a.peer_review_enabled && (
+                                          <div className="mt-1.5 flex items-center gap-2">
+                                            <button
+                                              onClick={() => doPeerReviewAssign(a.id)}
+                                              disabled={assigningPeerReview === a.id}
+                                              className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+                                            >
+                                              {assigningPeerReview === a.id ? "Assigning…" : "Assign Peer Reviews"}
+                                            </button>
+                                            {peerAssignMsg[a.id] && (
+                                              <span className="text-xs text-violet-600">{peerAssignMsg[a.id]}</span>
                                             )}
                                           </div>
-                                        </div>
-                                        <Link
-                                          to={`/teacher/assignments/${a.id}/grade`}
-                                          className="shrink-0 text-xs text-slate-500 hover:text-slate-900 underline ml-2"
-                                        >
-                                          Grade submissions →
-                                        </Link>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -1062,6 +1420,27 @@ export default function TeacherCourseDetail() {
                                         />
                                       </div>
                                     </div>
+                                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={newAssignPeerReview}
+                                        onChange={(e) => setNewAssignPeerReview(e.target.checked)}
+                                        className="rounded"
+                                      />
+                                      Enable peer review
+                                      {newAssignPeerReview && (
+                                        <span className="flex items-center gap-1 ml-2">
+                                          <span className="text-slate-400">Reviewers:</span>
+                                          <input
+                                            type="number"
+                                            value={newAssignNumReviewers}
+                                            onChange={(e) => setNewAssignNumReviewers(e.target.value)}
+                                            min={1} max={5}
+                                            className="w-12 rounded-lg border border-slate-200 px-2 py-0.5 text-xs outline-none"
+                                          />
+                                        </span>
+                                      )}
+                                    </label>
                                     <div className="flex gap-2">
                                       <button
                                         onClick={() => addAssignment(lesson.id)}
@@ -1172,6 +1551,59 @@ export default function TeacherCourseDetail() {
                 )}
               </div>
             ))}
+
+            {/* ── Prerequisites ────────────────────────────────────────── */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <SectionHeader title="Course Prerequisites" />
+              <p className="text-xs text-slate-500 mb-3">
+                Students must complete these courses before they can enroll in this one.
+              </p>
+
+              {prereqs.length === 0 ? (
+                <p className="text-xs text-slate-400 mb-3">No prerequisites set.</p>
+              ) : (
+                <div className="space-y-2 mb-3">
+                  {prereqs.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="text-sm text-slate-700">{p.prerequisite_title}</span>
+                      <button
+                        onClick={() => removePrereq(p.prerequisite_course_id)}
+                        className="text-xs text-rose-500 hover:text-rose-700 font-medium"
+                      >
+                        × Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <select
+                  value={selectedPrereqId}
+                  onChange={(e) => setSelectedPrereqId(e.target.value)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400"
+                >
+                  <option value="">— Select a course —</option>
+                  {allCourses
+                    .filter((c) => c.id !== id && !prereqs.some((p) => p.prerequisite_course_id === c.id))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                </select>
+                <button
+                  onClick={addPrereq}
+                  disabled={!selectedPrereqId || addingPrereq}
+                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {addingPrereq ? "Adding…" : "Add"}
+                </button>
+              </div>
+              {prereqMsg && (
+                <p className={`mt-2 text-xs font-medium ${prereqMsg.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                  {prereqMsg.text}
+                </p>
+              )}
+            </div>
           </div>
         )}
 

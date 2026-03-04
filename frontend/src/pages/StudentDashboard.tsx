@@ -38,6 +38,28 @@ type RecommendationsData = {
   recommendations: Recommendation[];
 };
 
+type StreakData = {
+  current_streak: number;
+  longest_streak: number;
+  total_study_days: number;
+  last_study_date: string | null;
+};
+
+type XPData = {
+  total_xp: number;
+  level: number;
+  xp_to_next_level: number;
+  recent_events: { event_type: string; xp_earned: number; created_at: string }[];
+};
+
+type EarnedBadge = {
+  badge_key: string;
+  name: string;
+  desc: string;
+  icon: string;
+  earned_at: string;
+};
+
 function classNames(...xs: Array<string | boolean | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -71,6 +93,9 @@ export default function StudentDashboard() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [recs, setRecs] = useState<RecommendationsData | null>(null);
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [xp, setXp] = useState<XPData | null>(null);
+  const [badges, setBadges] = useState<EarnedBadge[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
@@ -84,15 +109,21 @@ export default function StudentDashboard() {
     setError("");
 
     try {
-      const [d, r, rec] = await Promise.all([
+      const [d, r, rec, streakRes, xpRes, badgesRes] = await Promise.all([
         api.get<DashboardData>("/api/v1/me/dashboard"),
         api.get<RiskData>("/api/v1/me/risk-score"),
         api.get<RecommendationsData>("/api/v1/me/recommendations"),
+        api.get<StreakData>("/api/v1/me/streak").catch(() => null),
+        api.get<XPData>("/api/v1/me/xp").catch(() => null),
+        api.get<{ earned: EarnedBadge[] }>("/api/v1/me/badges").catch(() => null),
       ]);
 
       setDashboard(d.data);
       setRisk(r.data);
       setRecs(rec.data);
+      if (streakRes) setStreak(streakRes.data);
+      if (xpRes) setXp(xpRes.data);
+      if (badgesRes) setBadges(badgesRes.data.earned ?? []);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setError(e?.response?.data?.detail || e?.message || "Failed to load data");
@@ -178,6 +209,7 @@ export default function StudentDashboard() {
               )}
             </button>
             <NotificationBell />
+            <button onClick={() => navigate("/student/history")} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">History</button>
             <button onClick={() => navigate("/profile")} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Profile</button>
             <button onClick={loadAll} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
             <button onClick={logout} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Logout</button>
@@ -202,7 +234,7 @@ export default function StudentDashboard() {
         )}
 
         {/* KPI Cards */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {/* Enrollments */}
           <Link to="/student/courses" className="block rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm transition hover:shadow-md">
             <div className="flex items-start justify-between gap-3">
@@ -266,6 +298,68 @@ export default function StudentDashboard() {
               <div className="text-lg"></div>
             </div>
           </div>
+
+          {/* Streak */}
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-orange-500">Study Streak</div>
+                <div className="mt-1 text-3xl font-bold text-orange-900">
+                  {streak ? `${streak.current_streak}` : loading ? "…" : "0"}
+                  <span className="text-base font-normal text-orange-600 ml-1">days</span>
+                </div>
+                <div className="mt-1 text-xs text-orange-600">
+                  Longest: {streak?.longest_streak ?? 0} days
+                </div>
+              </div>
+              <div className="text-2xl">🔥</div>
+            </div>
+          </div>
+
+          {/* XP */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-600">XP Points</div>
+                <div className="mt-1 text-3xl font-bold text-amber-900">
+                  {xp ? xp.total_xp : loading ? "…" : "0"}
+                </div>
+                <div className="mt-1 text-xs text-amber-600">Level {xp?.level ?? 1}</div>
+                {xp && (
+                  <div className="mt-2 h-1.5 w-full rounded-full bg-amber-200">
+                    <div
+                      className="h-1.5 rounded-full bg-amber-500 transition-all"
+                      style={{ width: `${Math.min(100, Math.round(((xp.total_xp % 100) / 100) * 100))}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="text-2xl">⭐</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Badges */}
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">Your Badges</h3>
+          {loading ? (
+            <div className="text-xs text-slate-400">Loading…</div>
+          ) : badges.length === 0 ? (
+            <p className="text-xs text-slate-400">Complete lessons and quizzes to earn badges.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {badges.map((b) => (
+                <div
+                  key={b.badge_key}
+                  title={b.desc}
+                  className="flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-xs font-medium text-amber-800"
+                >
+                  <span>{b.icon}</span>
+                  <span>{b.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Main grid */}

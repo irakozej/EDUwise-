@@ -47,6 +47,7 @@ services:
       MINIO_SECRET_KEY: "minioadmin"
       MINIO_BUCKET: "eduwise"
       MINIO_PUBLIC_URL: "http://localhost:9000"
+      ANTHROPIC_API_KEY: ""
     ports:
       - "8000:8000"
     volumes:
@@ -59,5 +60,10 @@ services:
       - minio
 
 volumes:
+  # Use the existing volume from the original setup so all user/course data is preserved
   eduwise_pgdata:
+    external: true
+    name: recursing-lamport_eduwise_pgdata
   minio_data:
+    external: true
+    name: eduwise-_minio_data

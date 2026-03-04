@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { setAccessToken } from "../lib/auth";
 
@@ -211,6 +211,12 @@ export default function Login() {
                   )}
                 </button>
               </form>
+
+              <div className="mt-4 text-center">
+                <Link to="/forgot-password" className="text-xs text-slate-400 hover:text-slate-700 underline underline-offset-2">
+                  Forgot your password?
+                </Link>
+              </div>
             </div>
 
             <p className="mt-5 text-center text-xs text-slate-400">
