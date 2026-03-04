@@ -1,11 +1,13 @@
 import csv
 import io
+import threading
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from app.services.email import send_notification_email
 from app.services.notifications import push_notification
 from sqlalchemy import func
 
@@ -13,11 +15,16 @@ from app.api.deps import require_roles
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.assignment import Submission
+from app.models.comment import Comment
 from app.models.course import Course
 from app.models.enrollment import Enrollment
 from app.models.event import Event
+from app.models.gamification import XPLog, StudentBadge
 from app.models.message import Message
+from app.models.note import StudentNote
 from app.models.notification import Notification
+from app.models.password_reset import PasswordResetToken
+from app.models.peer_review import PeerReview
 from app.models.progress import LessonProgress
 from app.models.quiz import Quiz, QuizAttempt, QuizAnswer
 from app.models.refresh_token import RefreshToken
@@ -104,7 +111,7 @@ def admin_list_users(
             "email": u.email,
             "role": u.role,
             "is_active": u.is_active,
-            "created_at": str(u.created_at),
+            "created_at": u.created_at.isoformat() if u.created_at else None,
         }
         for u in users
     ]
@@ -147,6 +154,23 @@ def admin_create_user(
     db.commit()
     db.refresh(new_user)
     log_action(db, current_user.id, "CREATE", "User", str(new_user.id))
+
+    # Welcome notification + email with login credentials
+    push_notification(
+        db,
+        recipient_id=new_user.id,
+        type_="welcome",
+        title=f"Welcome to EDUwise, {new_user.full_name}!",
+        body=(
+            f"Your account has been created by an administrator.\n"
+            f"Email: {new_user.email}\n"
+            f"Password: {payload.password}\n"
+            f"You can change your password anytime from your Profile page."
+        ),
+        link="/profile",
+    )
+    db.commit()
+
     return {
         "id": new_user.id,
         "full_name": new_user.full_name,
@@ -261,6 +285,20 @@ def admin_delete_user(
     if _is_privileged(target.role):
         raise HTTPException(403, "Cannot delete admin or co-admin accounts")
 
+    # Send deletion email before the user record is removed
+    deleted_email = target.email
+    deleted_name = target.full_name
+    threading.Thread(
+        target=send_notification_email,
+        args=(
+            deleted_email,
+            "Your EDUwise account has been deleted",
+            f"Hi {deleted_name},\n\nYour EDUwise account has been permanently deleted by an administrator.\n\nIf you believe this was a mistake, please contact your institution.",
+            None,
+        ),
+        daemon=True,
+    ).start()
+
     # Delete dependent records in safe order to avoid FK violations
     # 1. Quiz answers (FK → quiz_attempts)
     attempt_ids = [a.id for a in db.query(QuizAttempt.id).filter(QuizAttempt.student_id == user_id).all()]
@@ -281,10 +319,18 @@ def admin_delete_user(
         (Message.sender_id == user_id) | (Message.recipient_id == user_id)
     ).delete(synchronize_session=False)
     db.query(Notification).filter(Notification.recipient_id == user_id).delete(synchronize_session=False)
-    db.query(Event).filter(Event.user_id == user_id).delete(synchronize_session=False)
+    db.query(Event).filter(Event.student_id == user_id).delete(synchronize_session=False)
     db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete(synchronize_session=False)
 
-    # 4. Nullify audit log actors (keep the log but remove the user reference)
+    # 4. Phase 4 tables: XP logs, badges, notes, peer reviews, comments, password reset tokens
+    db.query(XPLog).filter(XPLog.student_id == user_id).delete(synchronize_session=False)
+    db.query(StudentBadge).filter(StudentBadge.student_id == user_id).delete(synchronize_session=False)
+    db.query(StudentNote).filter(StudentNote.student_id == user_id).delete(synchronize_session=False)
+    db.query(PeerReview).filter(PeerReview.reviewer_id == user_id).delete(synchronize_session=False)
+    db.query(Comment).filter(Comment.author_id == user_id).delete(synchronize_session=False)
+    db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user_id).delete(synchronize_session=False)
+
+    # 5. Nullify audit log actors (keep the log but remove the user reference)
     db.query(AuditLog).filter(AuditLog.actor_user_id == user_id).update(
         {"actor_user_id": None}, synchronize_session=False
     )

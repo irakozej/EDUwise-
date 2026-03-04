@@ -1,6 +1,11 @@
-"""Central helper for creating in-app notifications."""
+"""Central helper for creating in-app notifications and sending email notifications."""
+import threading
+
 from sqlalchemy.orm import Session
+
 from app.models.notification import Notification
+from app.models.user import User
+from app.services.email import send_notification_email
 
 
 def push_notification(
@@ -11,7 +16,7 @@ def push_notification(
     body: str | None = None,
     link: str | None = None,
 ) -> None:
-    """Insert a Notification row. Call db.commit() after."""
+    """Insert a Notification row and send an email. Call db.commit() after."""
     db.add(
         Notification(
             recipient_id=recipient_id,
@@ -21,3 +26,13 @@ def push_notification(
             link=link,
         )
     )
+
+    # Send email in a background thread so it never blocks the request
+    user = db.get(User, recipient_id)
+    if user and user.email:
+        email = user.email
+
+        def _send():
+            send_notification_email(email, title, body, link)
+
+        threading.Thread(target=_send, daemon=True).start()
