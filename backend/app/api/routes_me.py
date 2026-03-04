@@ -6,6 +6,7 @@ from sqlalchemy import func
 
 from app.api.deps import require_roles, get_current_user
 from app.db.session import get_db
+from app.models.assignment import Assignment, Submission
 from app.models.user import User, UserRole
 from app.models.enrollment import Enrollment
 from app.models.course import Course, Module, Lesson
@@ -180,3 +181,143 @@ def my_courses_teacher(
         })
 
     return {"items": items}
+
+
+# ── Student: quiz attempt history ─────────────────────────────────────────────
+
+@router.get("/me/quiz-attempts")
+def my_quiz_attempts(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.student)),
+):
+    """Return all quiz attempts for the logged-in student, enriched with quiz and course title."""
+    rows = (
+        db.query(QuizAttempt, Quiz, Lesson, Module, Course)
+        .join(Quiz, Quiz.id == QuizAttempt.quiz_id)
+        .join(Lesson, Lesson.id == Quiz.lesson_id)
+        .join(Module, Module.id == Lesson.module_id)
+        .join(Course, Course.id == Module.course_id)
+        .filter(QuizAttempt.student_id == user.id, QuizAttempt.is_submitted == True)  # noqa: E712
+        .order_by(QuizAttempt.submitted_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "attempt_id": attempt.id,
+            "quiz_id": attempt.quiz_id,
+            "quiz_title": quiz.title,
+            "course_id": course.id,
+            "course_title": course.title,
+            "score_pct": attempt.score_pct,
+            "submitted_at": str(attempt.submitted_at) if attempt.submitted_at else None,
+        }
+        for attempt, quiz, lesson, module, course in rows
+    ]
+
+
+# ── Student: assignment submission history ────────────────────────────────────
+
+@router.get("/me/submission-history")
+def my_submission_history(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.student)),
+):
+    """Return all assignment submissions for the student, enriched with assignment and course info."""
+    rows = (
+        db.query(Submission, Assignment, Lesson, Module, Course)
+        .join(Assignment, Assignment.id == Submission.assignment_id)
+        .join(Lesson, Lesson.id == Assignment.lesson_id)
+        .join(Module, Module.id == Lesson.module_id)
+        .join(Course, Course.id == Module.course_id)
+        .filter(Submission.student_id == user.id, Submission.is_submitted == True)  # noqa: E712
+        .order_by(Submission.submitted_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "submission_id": sub.id,
+            "assignment_id": sub.assignment_id,
+            "assignment_title": assignment.title,
+            "course_id": course.id,
+            "course_title": course.title,
+            "max_score": assignment.max_score,
+            "due_date": str(assignment.due_date) if assignment.due_date else None,
+            "submitted_at": str(sub.submitted_at) if sub.submitted_at else None,
+            "grade": sub.grade,
+            "feedback": sub.feedback,
+            "graded_at": str(sub.graded_at) if sub.graded_at else None,
+        }
+        for sub, assignment, lesson, module, course in rows
+    ]
+
+
+# ── Student: study streak ─────────────────────────────────────────────────────
+
+@router.get("/me/streak")
+def my_streak(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Compute study streak from existing activity data (no extra table needed)."""
+    from datetime import date, timedelta
+    from sqlalchemy import func as sqlfunc
+    from app.models.assignment import Submission
+
+    progress_dates = {
+        r[0] for r in db.query(sqlfunc.date(LessonProgress.updated_at))
+        .filter(LessonProgress.student_id == user.id).all()
+        if r[0]
+    }
+    quiz_dates = {
+        r[0] for r in db.query(sqlfunc.date(QuizAttempt.started_at))
+        .filter(QuizAttempt.student_id == user.id).all()
+        if r[0]
+    }
+    sub_dates = {
+        r[0] for r in db.query(sqlfunc.date(Submission.submitted_at))
+        .filter(Submission.student_id == user.id, Submission.submitted_at.isnot(None)).all()
+        if r[0]
+    }
+
+    all_dates = sorted(progress_dates | quiz_dates | sub_dates, reverse=True)
+
+    if not all_dates:
+        return {
+            "current_streak": 0,
+            "longest_streak": 0,
+            "total_study_days": 0,
+            "last_study_date": None,
+        }
+
+    today = date.today()
+
+    # Compute current streak (consecutive days ending today or yesterday)
+    current = 0
+    check = today
+    for d in all_dates:
+        if current == 0 and d == today - timedelta(days=1):
+            check = d
+        if d == check:
+            current += 1
+            check -= timedelta(days=1)
+        elif d < check:
+            break
+
+    # Compute longest streak
+    asc = sorted(all_dates)
+    longest, run = 1, 1
+    for i in range(1, len(asc)):
+        if (asc[i] - asc[i - 1]).days == 1:
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 1
+
+    return {
+        "current_streak": current,
+        "longest_streak": max(longest, current),
+        "total_study_days": len(all_dates),
+        "last_study_date": str(all_dates[0]) if all_dates else None,
+    }

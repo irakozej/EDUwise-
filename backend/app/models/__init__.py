@@ -11,3 +11,8 @@ from app.models.announcement import Announcement
 from app.models.comment import Comment
 from app.models.notification import Notification
 from app.models.message import Message
+from app.models.password_reset import PasswordResetToken
+from app.models.gamification import XPLog, StudentBadge
+from app.models.note import StudentNote
+from app.models.peer_review import PeerReview
+from app.models.prerequisite import CoursePrerequisite

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.course import Lesson, Module
+from app.models.course import Course, Lesson, Module
 from app.models.enrollment import Enrollment
 from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAnswer
 from app.models.user import User, UserRole
@@ -358,6 +358,14 @@ def submit_attempt(
 
     log_action(db, user.id, "SUBMIT", "QuizAttempt", str(attempt.id))
 
+    # Award XP based on score
+    from app.services.gamification import award_xp
+    if score_pct == 100:
+        award_xp(db, user.id, "quiz_ace", attempt.id)
+    elif score_pct >= 60:
+        award_xp(db, user.id, "quiz_pass", attempt.id)
+    db.commit()
+
     # Build per-question results for instant feedback
     all_answers = db.query(QuizAnswer).filter(QuizAnswer.attempt_id == attempt.id).all()
     results = [
@@ -380,3 +388,112 @@ def submit_attempt(
         started_at=str(attempt.started_at) if attempt.started_at else None,
         results=results,
     )
+
+
+# ---------- Quiz / Question editing (Teacher/Admin) ----------
+
+def _quiz_owner_check(db: Session, quiz: Quiz, user: User) -> None:
+    lesson = db.get(Lesson, quiz.lesson_id)
+    if not lesson:
+        raise HTTPException(500, "Lesson not found")
+    module = db.get(Module, lesson.module_id)
+    if not module:
+        raise HTTPException(500, "Module not found")
+    course = db.get(Course, module.course_id)
+    if not course:
+        raise HTTPException(500, "Course not found")
+    if user.role != UserRole.admin and course.teacher_id != user.id:
+        raise HTTPException(403, "Not your course")
+
+
+@router.patch("/quizzes/{quiz_id}", response_model=QuizOut)
+def update_quiz(
+    quiz_id: int,
+    payload: QuizCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    _quiz_owner_check(db, quiz, user)
+    if payload.title:
+        quiz.title = payload.title.strip()
+    quiz.time_limit_minutes = payload.time_limit_minutes
+    db.commit()
+    db.refresh(quiz)
+    log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
+    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+
+
+@router.delete("/quizzes/{quiz_id}", status_code=204)
+def delete_quiz(
+    quiz_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    _quiz_owner_check(db, quiz, user)
+    # Delete attempts & answers first to avoid FK violations
+    attempt_ids = [a.id for a in db.query(QuizAttempt.id).filter(QuizAttempt.quiz_id == quiz_id).all()]
+    if attempt_ids:
+        db.query(QuizAnswer).filter(QuizAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+    db.query(QuizAttempt).filter(QuizAttempt.quiz_id == quiz_id).delete(synchronize_session=False)
+    db.query(QuizQuestion).filter(QuizQuestion.quiz_id == quiz_id).delete(synchronize_session=False)
+    log_action(db, user.id, "DELETE", "Quiz", str(quiz_id))
+    db.delete(quiz)
+    db.commit()
+
+
+@router.patch("/quiz-questions/{question_id}", response_model=QuestionOut)
+def update_question(
+    question_id: int,
+    payload: QuestionCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    q = db.get(QuizQuestion, question_id)
+    if not q:
+        raise HTTPException(404, "Question not found")
+    quiz = db.get(Quiz, q.quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    _quiz_owner_check(db, quiz, user)
+    q.question_text = payload.question_text
+    q.option_a = payload.option_a
+    q.option_b = payload.option_b
+    q.option_c = payload.option_c
+    q.option_d = payload.option_d
+    q.correct_option = payload.correct_option
+    q.topic = payload.topic
+    q.difficulty = payload.difficulty
+    db.commit()
+    db.refresh(q)
+    log_action(db, user.id, "UPDATE", "QuizQuestion", str(q.id))
+    return QuestionOut(
+        id=q.id, quiz_id=q.quiz_id, question_text=q.question_text,
+        option_a=q.option_a, option_b=q.option_b, option_c=q.option_c, option_d=q.option_d,
+        topic=q.topic, difficulty=q.difficulty,
+    )
+
+
+@router.delete("/quiz-questions/{question_id}", status_code=204)
+def delete_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin)),
+):
+    q = db.get(QuizQuestion, question_id)
+    if not q:
+        raise HTTPException(404, "Question not found")
+    quiz = db.get(Quiz, q.quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    _quiz_owner_check(db, quiz, user)
+    # Remove related answers before deleting the question
+    db.query(QuizAnswer).filter(QuizAnswer.question_id == question_id).delete(synchronize_session=False)
+    log_action(db, user.id, "DELETE", "QuizQuestion", str(question_id))
+    db.delete(q)
+    db.commit()

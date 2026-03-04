@@ -170,6 +170,12 @@ def submit_assignment(
     db.refresh(sub)
 
     log_action(db, user.id, "SUBMIT", "Assignment", str(assignment_id))
+
+    # Award XP for submitting
+    from app.services.gamification import award_xp
+    award_xp(db, user.id, "assignment_submit", sub.id)
+    db.commit()
+
     return sub
 
 
@@ -271,6 +277,12 @@ def grade_submission(
 
     db.commit()
     db.refresh(sub)
+
+    # Award XP to student if grade >= 80%
+    if payload.grade >= int(a.max_score * 0.8):
+        from app.services.gamification import award_xp
+        award_xp(db, sub.student_id, "assignment_honor", sub.id)
+        db.commit()
 
     log_action(db, user.id, "GRADE", "Submission", str(submission_id))
     return sub

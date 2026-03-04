@@ -13,6 +13,8 @@ class Assignment(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_date: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     max_score: Mapped[int] = mapped_column(Integer, default=100)
+    peer_review_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    num_reviewers: Mapped[int] = mapped_column(Integer, default=2)
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

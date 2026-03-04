@@ -1,7 +1,10 @@
 import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 
@@ -9,12 +12,14 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.refresh_token import RefreshToken
+from app.models.password_reset import PasswordResetToken
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, MeResponse
 from app.services.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token
 )
 from app.services.audit import log_action
+from app.services.email import send_password_reset_email
 from app.api.deps import get_current_user
 
 _optional_bearer = HTTPBearer(auto_error=False)
@@ -128,3 +133,82 @@ def logout(payload: RefreshRequest, db: Session = Depends(get_db)):
 @router.get("/auth/me", response_model=MeResponse)
 def me(user: User = Depends(get_current_user)):
     return MeResponse(id=user.id, full_name=user.full_name, email=user.email, role=user.role)
+
+
+# ── Forgot / Reset password ───────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/auth/forgot-password", status_code=202)
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Always returns 202 regardless of whether the email exists (prevents email enumeration).
+    The reset link is emailed if SMTP is configured, otherwise printed to server logs.
+    Token expires in 1 hour.
+    """
+    user = db.query(User).filter(User.email == payload.email.strip().lower()).first()
+    if user and user.is_active:
+        # Invalidate any existing unused tokens for this user
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False,  # noqa: E712
+        ).update({"used": True}, synchronize_session=False)
+
+        raw_token = secrets.token_urlsafe(48)
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        db.add(PasswordResetToken(user_id=user.id, token=raw_token, expires_at=expires))
+        db.commit()
+
+        try:
+            send_password_reset_email(user.email, raw_token)
+        except Exception as exc:
+            # Never fail the request if email sending fails — link already in logs
+            print(f"[EMAIL ERROR] {exc}")
+
+    return {"status": "accepted", "message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/auth/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Validate token and update the user's password."""
+    if len(payload.new_password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    token_row = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token == payload.token,
+            PasswordResetToken.used == False,  # noqa: E712
+        )
+        .first()
+    )
+
+    if not token_row:
+        raise HTTPException(400, "Invalid or already-used reset token")
+
+    now = datetime.now(timezone.utc)
+    expires = token_row.expires_at
+    if expires.tzinfo is None:
+        from datetime import timezone as tz
+        expires = expires.replace(tzinfo=tz.utc)
+
+    if now > expires:
+        raise HTTPException(400, "Reset token has expired. Please request a new one.")
+
+    user = db.get(User, token_row.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(400, "User not found or inactive")
+
+    user.password_hash = hash_password(payload.new_password)
+    token_row.used = True
+    db.commit()
+
+    log_action(db, user.id, "PASSWORD_RESET", "User", str(user.id))
+    return {"status": "ok", "message": "Password updated successfully. You can now log in."}

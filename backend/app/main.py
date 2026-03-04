@@ -23,6 +23,10 @@ from app.api.routes_admin import router as admin_router
 from app.api.routes_discussions import router as discussions_router
 from app.api.routes_notifications import router as notifications_router
 from app.api.routes_messages import router as messages_router
+from app.api.routes_ai import router as ai_router
+from app.api.routes_notes import router as notes_router
+from app.api.routes_gamification import router as gamification_router
+from app.api.routes_peer_review import router as peer_review_router
 
 
 @asynccontextmanager
@@ -91,3 +95,7 @@ app.include_router(admin_router, prefix="/api/v1", tags=["admin"])
 app.include_router(discussions_router, prefix="/api/v1", tags=["discussions"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(messages_router, prefix="/api/v1", tags=["messages"])
+app.include_router(ai_router, prefix="/api/v1", tags=["ai"])
+app.include_router(notes_router, prefix="/api/v1", tags=["notes"])
+app.include_router(gamification_router, prefix="/api/v1", tags=["gamification"])
+app.include_router(peer_review_router, prefix="/api/v1", tags=["peer-review"])

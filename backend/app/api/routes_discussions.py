@@ -76,6 +76,12 @@ def post_comment(
 
     log_action(db, user.id, "CREATE", "Comment", str(comment.id))
 
+    # Award XP for discussion participation (students only)
+    if user.role.value == "student":
+        from app.services.gamification import award_xp
+        award_xp(db, user.id, "discussion_post", comment.id)
+        db.commit()
+
     return CommentOut(
         id=comment.id,
         lesson_id=comment.lesson_id,
