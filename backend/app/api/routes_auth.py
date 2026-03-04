@@ -2,6 +2,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from app.services.notifications import push_notification
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -69,6 +70,22 @@ def register(
     db.refresh(user)
 
     log_action(db, actor_user_id=user.id, action="REGISTER", entity="User", entity_id=str(user.id))
+
+    # Welcome notification — include login credentials so the user can log in
+    push_notification(
+        db,
+        recipient_id=user.id,
+        type_="welcome",
+        title=f"Welcome to EDUwise, {user.full_name}!",
+        body=(
+            f"Your account has been created.\n"
+            f"Email: {user.email}\n"
+            f"Password: {payload.password}\n"
+            f"You can change your password anytime from your Profile page."
+        ),
+        link="/profile",
+    )
+    db.commit()
 
     return MeResponse(id=user.id, full_name=user.full_name, email=user.email, role=user.role)
 

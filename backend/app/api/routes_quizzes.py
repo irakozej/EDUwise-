@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.services.notifications import push_notification
 
 from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
@@ -364,6 +365,17 @@ def submit_attempt(
         award_xp(db, user.id, "quiz_ace", attempt.id)
     elif score_pct >= 60:
         award_xp(db, user.id, "quiz_pass", attempt.id)
+
+    # Notify student of quiz result
+    result_label = "Perfect score!" if score_pct == 100 else ("Passed" if score_pct >= 60 else "Keep practising")
+    push_notification(
+        db,
+        recipient_id=user.id,
+        type_="quiz_graded",
+        title=f"Quiz result: {score_pct}% — {result_label}",
+        body=f"You scored {correct}/{total} on '{quiz.title}'.",
+        link="/student/quizzes",
+    )
     db.commit()
 
     # Build per-question results for instant feedback

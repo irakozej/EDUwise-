@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from app.services.notifications import push_notification
 from sqlalchemy import func
 
 from app.api.deps import require_roles
@@ -171,6 +172,19 @@ def admin_toggle_user_active(
         raise HTTPException(403, "Co-admins cannot deactivate admin or co-admin accounts")
 
     target.is_active = not target.is_active
+    if target.is_active:
+        push_notification(
+            db, recipient_id=target.id, type_="account_reactivated",
+            title="Your account has been reactivated",
+            body="An administrator has re-activated your EDUwise account. You can now log in and resume your courses.",
+            link="/student",
+        )
+    else:
+        push_notification(
+            db, recipient_id=target.id, type_="account_deactivated",
+            title="Your account has been deactivated",
+            body="An administrator has deactivated your EDUwise account. Please contact support if you believe this is a mistake.",
+        )
     db.commit()
     db.refresh(target)
     log_action(db, current_user.id, "UPDATE", "User", str(target.id))

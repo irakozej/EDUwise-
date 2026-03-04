@@ -8,8 +8,15 @@ from app.models.enrollment import Enrollment
 from app.models.user import User, UserRole
 from app.ml.feature_builder import build_student_features
 from app.ml.risk_predictor import predict_risk
+from app.services.notifications import push_notification
 
 router = APIRouter()
+
+_RISK_MESSAGES = {
+    "low":    ("Your learning is on track", "Keep up the great work! Your risk score is low."),
+    "medium": ("Your risk level has increased", "You may be falling behind. Try to complete more lessons and quizzes this week."),
+    "high":   ("You are at high risk of falling behind", "Please engage with your courses urgently — complete lessons, attempt quizzes, and reach out to your teacher if you need help."),
+}
 
 
 @router.get("/me/risk-score")
@@ -19,7 +26,21 @@ def me_risk_score(
 ):
     feats = build_student_features(db, user.id)
     risk = predict_risk(feats)
-    return {"student_id": user.id, "risk_score": risk, "features": feats}
+
+    new_label = "high" if risk >= 0.7 else ("medium" if risk >= 0.4 else "low")
+    prev_label = user.last_risk_label
+
+    # Only notify when the label genuinely changes
+    if prev_label != new_label:
+        title, body = _RISK_MESSAGES[new_label]
+        push_notification(
+            db, recipient_id=user.id, type_="risk_change",
+            title=title, body=body, link="/student",
+        )
+        user.last_risk_label = new_label
+        db.commit()
+
+    return {"student_id": user.id, "risk_score": risk, "risk_label": new_label, "features": feats}
 
 
 @router.get("/teacher/courses/{course_id}/at-risk")

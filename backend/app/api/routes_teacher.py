@@ -4,6 +4,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from app.services.notifications import push_notification
 
 from app.api.deps import require_roles
 from app.db.session import get_db
@@ -126,6 +127,14 @@ def teacher_remove_student_from_course(
         raise HTTPException(404, "Active enrollment not found")
 
     e.status = "removed"
+    push_notification(
+        db,
+        recipient_id=student_id,
+        type_="enrollment_removed",
+        title=f"You have been removed from '{course.title}'",
+        body="Your enrollment has been cancelled by the course instructor. Contact your teacher if you believe this is a mistake.",
+        link="/student/courses",
+    )
     db.commit()
 
     log_action(db, user.id, "REMOVE", "Enrollment", f"{course_id}:{student_id}")
@@ -264,11 +273,23 @@ def teacher_enroll_student(
         if existing.status == "active":
             return {"status": "already_enrolled", "student_id": student.id, "full_name": student.full_name}
         existing.status = "active"
+        push_notification(
+            db, recipient_id=student.id, type_="enrolled",
+            title=f"You've been re-enrolled in '{course.title}'",
+            body="Your instructor has re-activated your enrollment. Head to My Courses to continue learning.",
+            link="/student/courses",
+        )
         db.commit()
         log_action(db, user.id, "ENROLL", "Course", f"{course_id}:{student.id}")
         return {"status": "re_enrolled", "student_id": student.id, "full_name": student.full_name}
 
     db.add(Enrollment(student_id=student.id, course_id=course_id, status="active"))
+    push_notification(
+        db, recipient_id=student.id, type_="enrolled",
+        title=f"You've been enrolled in '{course.title}'",
+        body="Your instructor has added you to this course. Go to My Courses to start learning.",
+        link="/student/courses",
+    )
     db.commit()
     log_action(db, user.id, "ENROLL", "Course", f"{course_id}:{student.id}")
     return {"status": "enrolled", "student_id": student.id, "full_name": student.full_name}
@@ -330,9 +351,21 @@ async def teacher_enroll_bulk(
                     already_enrolled.append(email)
                 else:
                     existing.status = "active"
+                    push_notification(
+                        db, recipient_id=student.id, type_="enrolled",
+                        title=f"You've been enrolled in '{course.title}'",
+                        body="Your instructor has added you to this course. Go to My Courses to start learning.",
+                        link="/student/courses",
+                    )
                     enrolled.append(email)
             else:
                 db.add(Enrollment(student_id=student.id, course_id=course_id, status="active"))
+                push_notification(
+                    db, recipient_id=student.id, type_="enrolled",
+                    title=f"You've been enrolled in '{course.title}'",
+                    body="Your instructor has added you to this course. Go to My Courses to start learning.",
+                    link="/student/courses",
+                )
                 enrolled.append(email)
         except Exception as e:
             errors.append(f"{email}: {str(e)}")
