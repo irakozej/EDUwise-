@@ -411,7 +411,7 @@ All foreign keys and high-cardinality query columns are indexed:
 #### Step 1 — Clone the Repository
 
 ```bash
-git clone <repository-url> eduwise
+git clone https://github.com/irakozej/EDUwise-.git  eduwise
 cd eduwise
 ```
 
