@@ -5,6 +5,9 @@
 > Link to the Domo: https://youtu.be/wiRjRDQTW80
 > Link to the deployed product: https://eduwise-chi-ruby.vercel.app/
 
+Log in as the First teacher: Email: teacher1@gmail.com  Password: Cuddlug@1
+Log in as the Demo User(Student) Email: demo@gmail.com  Password: Cuddlug@1
+ 
 ---
 
 ## Table of Contents
