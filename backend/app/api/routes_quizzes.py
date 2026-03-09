@@ -55,6 +55,24 @@ def create_quiz(
     db.refresh(quiz)
 
     log_action(db, user.id, "CREATE", "Quiz", str(quiz.id))
+
+    # Notify all enrolled students
+    course_id = _get_course_id_for_lesson(db, payload.lesson_id)
+    course = db.get(Course, course_id)
+    enrolled_students = (
+        db.query(Enrollment)
+        .filter(Enrollment.course_id == course_id, Enrollment.status == "active")
+        .all()
+    )
+    for enroll in enrolled_students:
+        push_notification(
+            db, enroll.student_id, "new_quiz",
+            f'New quiz in "{course.title}"',
+            f'"{quiz.title}" has been added. Check it out!',
+            f"/student/courses/{course_id}",
+        )
+    db.commit()
+
     return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
 
 
@@ -377,6 +395,13 @@ def submit_attempt(
         link="/student/quizzes",
     )
     db.commit()
+
+    # Auto-update lesson progress based on quiz performance
+    try:
+        from app.services.progress import auto_update_progress
+        auto_update_progress(db, user.id, quiz.lesson_id)
+    except Exception:
+        pass
 
     # Build per-question results for instant feedback
     all_answers = db.query(QuizAnswer).filter(QuizAnswer.attempt_id == attempt.id).all()

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
+import StudentPageNav from "../components/StudentPageNav";
 
 type Course = { id: number; title: string; teacher_id: number };
 type Module = { id: number; course_id: number; title: string; order_index: number };
@@ -65,19 +66,9 @@ export default function StudentQuizzes() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <StudentPageNav title="Quizzes" subtitle="Published quizzes from your enrolled courses" />
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Quizzes</h1>
-            <p className="mt-1 text-sm text-slate-500">Published quizzes from your enrolled courses</p>
-          </div>
-          <Link
-            to="/student"
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Back to dashboard
-          </Link>
-        </div>
+        <div />
 
         {error && (
           <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">

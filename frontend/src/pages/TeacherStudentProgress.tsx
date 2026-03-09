@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
+import TeacherPageNav from "../components/TeacherPageNav";
 
 type LessonProgress = {
   lesson_id: number;
@@ -48,6 +49,9 @@ export default function TeacherStudentProgress() {
   const [data, setData] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [overrideLesson, setOverrideLesson] = useState<number | null>(null);
+  const [overrideValue, setOverrideValue] = useState("");
+  const [overrideSaving, setOverrideSaving] = useState(false);
 
   useEffect(() => {
     if (!getAccessToken()) { window.location.href = "/"; return; }
@@ -92,15 +96,49 @@ export default function TeacherStudentProgress() {
     );
   }
 
+  async function saveOverride(lessonId: number) {
+    const val = parseInt(overrideValue, 10);
+    if (isNaN(val) || val < 0 || val > 100) {
+      alert("Enter a value between 0 and 100");
+      return;
+    }
+    setOverrideSaving(true);
+    try {
+      await api.patch(`/api/v1/lessons/${lessonId}/students/${sId}/progress`, { progress_pct: val });
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              lessons: prev.lessons.map((l) =>
+                l.lesson_id === lessonId ? { ...l, progress_pct: val } : l
+              ),
+            }
+          : prev
+      );
+      setOverrideLesson(null);
+      setOverrideValue("");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      alert(e?.response?.data?.detail || e?.message || "Failed to override progress");
+    } finally {
+      setOverrideSaving(false);
+    }
+  }
+
   const avgPct = data.progress.avg_progress_pct ?? 0;
   const barColor = riskColor(avgPct);
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <TeacherPageNav
+        title={data.student.full_name}
+        subtitle={`Progress in ${data.course.title}`}
+        backTo={`/teacher/courses/${cId}`}
+        backLabel="Course"
+      />
       <div className="mx-auto max-w-4xl px-4 py-8">
-
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-sm text-slate-500 flex-wrap">
+        <div className="flex items-center gap-2 text-sm text-slate-500 flex-wrap mb-4">
           <Link to="/teacher" className="hover:text-slate-900">Dashboard</Link>
           <span className="text-slate-300">/</span>
           <Link to={`/teacher/courses/${cId}`} className="hover:text-slate-900">{data.course.title}</Link>
@@ -172,15 +210,54 @@ export default function TeacherStudentProgress() {
             <div className="space-y-3">
               {data.lessons.map((lesson) => {
                 const pct = lesson.progress_pct;
+                const isEditing = overrideLesson === lesson.lesson_id;
                 return (
                   <div key={lesson.lesson_id}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-slate-700 truncate pr-4">{lesson.lesson_title}</span>
-                      <span className={`shrink-0 text-xs font-semibold ${
-                        pct >= 100 ? "text-emerald-600" : pct >= 50 ? "text-amber-600" : "text-slate-500"
-                      }`}>
-                        {pct}%
-                      </span>
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <span className="text-sm text-slate-700 truncate">{lesson.lesson_title}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isEditing ? (
+                          <>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={overrideValue}
+                              onChange={(e) => setOverrideValue(e.target.value)}
+                              className="w-16 rounded-lg border border-slate-300 px-2 py-0.5 text-xs text-center outline-none focus:border-slate-500"
+                              placeholder="0-100"
+                            />
+                            <button
+                              onClick={() => saveOverride(lesson.lesson_id)}
+                              disabled={overrideSaving}
+                              className="text-xs font-medium text-emerald-600 hover:text-emerald-800 disabled:opacity-50"
+                            >
+                              {overrideSaving ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                              onClick={() => { setOverrideLesson(null); setOverrideValue(""); }}
+                              className="text-xs text-slate-400 hover:text-slate-600"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className={`text-xs font-semibold ${
+                              pct >= 100 ? "text-emerald-600" : pct >= 50 ? "text-amber-600" : "text-slate-500"
+                            }`}>
+                              {pct}%
+                            </span>
+                            <button
+                              onClick={() => { setOverrideLesson(lesson.lesson_id); setOverrideValue(String(pct)); }}
+                              className="text-xs text-slate-400 hover:text-slate-600 px-1.5 py-0.5 rounded hover:bg-slate-100"
+                              title="Override progress"
+                            >
+                              Edit
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <ProgressBar pct={pct} color={pct >= 100 ? "emerald" : pct >= 50 ? "amber" : "rose"} />
                   </div>

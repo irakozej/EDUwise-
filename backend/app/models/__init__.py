@@ -16,3 +16,4 @@ from app.models.gamification import XPLog, StudentBadge
 from app.models.note import StudentNote
 from app.models.peer_review import PeerReview
 from app.models.prerequisite import CoursePrerequisite
+from app.models.exercise import ExerciseAttempt, ExerciseQuestion, ExerciseAnswer

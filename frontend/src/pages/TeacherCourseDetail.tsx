@@ -713,6 +713,14 @@ export default function TeacherCourseDetail() {
     } catch (err) { alert(errMsg(err)); }
   }
 
+  async function doDeleteCourse() {
+    if (!confirm(`Delete course "${course?.title}" and ALL its modules, lessons, quizzes, and content? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/api/v1/courses/${id}`);
+      navigate("/teacher");
+    } catch (err) { alert(errMsg(err)); }
+  }
+
   async function doDeleteQuestion(questionId: number, quizId: number) {
     if (!confirm("Delete this question?")) return;
     try {
@@ -865,6 +873,12 @@ export default function TeacherCourseDetail() {
               )}
             </button>
             <NotificationBell />
+            <button
+              onClick={doDeleteCourse}
+              className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
+            >
+              Delete Course
+            </button>
             <button
               onClick={() => navigate("/profile")}
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -1170,7 +1184,7 @@ export default function TeacherCourseDetail() {
                                                   disabled={aiGenerating[quiz.id]}
                                                   className="text-xs text-violet-600 hover:text-violet-800 font-medium disabled:opacity-50"
                                                 >
-                                                  {aiGenerating[quiz.id] ? "Generating…" : "✨ Generate with AI"}
+                                                  {aiGenerating[quiz.id] ? "Generating…" : "Generate with AI"}
                                                 </button>
                                                 <button
                                                   onClick={() => setAddQuestionForQuiz(quiz.id)}

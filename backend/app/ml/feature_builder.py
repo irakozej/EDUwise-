@@ -7,6 +7,8 @@ from app.models.progress import LessonProgress
 from app.models.course import Lesson, Module
 from app.models.quiz import QuizAttempt, Quiz
 from app.models.event import Event
+from app.models.exercise import ExerciseAttempt
+from app.models.assignment import Submission
 
 
 def build_student_features(db: Session, student_id: int) -> dict:
@@ -70,6 +72,27 @@ def build_student_features(db: Session, student_id: int) -> dict:
         .scalar()
     ) or 0
 
+    # Exercises
+    exercise_attempts = (
+        db.query(func.count(ExerciseAttempt.id))
+        .filter(ExerciseAttempt.student_id == student_id, ExerciseAttempt.is_submitted == True)  # noqa: E712
+        .scalar()
+    ) or 0
+
+    avg_exercise_score = (
+        db.query(func.avg(ExerciseAttempt.score_pct))
+        .filter(ExerciseAttempt.student_id == student_id, ExerciseAttempt.is_submitted == True)  # noqa: E712
+        .scalar()
+    )
+    avg_exercise_score = float(avg_exercise_score) if avg_exercise_score is not None else 0.0
+
+    # Assignments submitted
+    assignments_submitted = (
+        db.query(func.count(Submission.id))
+        .filter(Submission.student_id == student_id, Submission.is_submitted == True)  # noqa: E712
+        .scalar()
+    ) or 0
+
     return {
         "active_courses": float(active_courses),
         "avg_progress": float(avg_progress),
@@ -79,4 +102,7 @@ def build_student_features(db: Session, student_id: int) -> dict:
         "events_total": float(events_total),
         "lesson_open_events": float(lesson_open),
         "quiz_submit_events": float(quiz_submit),
+        "exercise_attempts": float(exercise_attempts),
+        "avg_exercise_score": float(avg_exercise_score),
+        "assignments_submitted": float(assignments_submitted),
     }

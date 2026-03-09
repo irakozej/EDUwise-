@@ -9,6 +9,7 @@ import StudentCourseDetail from "./pages/StudentCoursesDetail";
 import StudentQuizzes from "./pages/StudentQuizzes";
 import StudentTakeQuiz from "./pages/StudentTakeQuiz";
 import StudentHistory from "./pages/StudentHistory";
+import StudentExercise from "./pages/StudentExercise";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TeacherCourseDetail from "./pages/TeacherCourseDetail";
 import TeacherStudentProgress from "./pages/TeacherStudentProgress";
@@ -31,6 +32,7 @@ export function App() {
         <Route path="/student/quizzes" element={<StudentQuizzes />} />
         <Route path="/student/quizzes/:quizId" element={<StudentTakeQuiz />} />
         <Route path="/student/history" element={<StudentHistory />} />
+        <Route path="/student/lessons/:lessonId/exercises" element={<StudentExercise />} />
 
         {/* Teacher routes */}
         <Route path="/teacher" element={<TeacherDashboard />} />

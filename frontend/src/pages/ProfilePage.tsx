@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import FileUpload from "../components/FileUpload";
+import NotificationBell from "../components/NotificationBell";
 
 type ProfileData = {
   id: number;
@@ -144,21 +145,38 @@ export default function ProfilePage() {
     .join("")
     .toUpperCase();
 
+  const back = backPath(profile?.role ?? "student");
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-2xl px-4 py-10">
-
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
-          <button
-            onClick={() => navigate(backPath(profile?.role ?? "student"))}
-            className="text-sm text-slate-500 hover:text-slate-900"
-          >
-            ← Back to Dashboard
-          </button>
-          <span className="text-slate-300">/</span>
-          <h1 className="text-xl font-semibold text-slate-900">My Profile</h1>
+      {/* Sticky navbar */}
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => navigate(back)}
+              className="shrink-0 grid h-8 w-8 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+              aria-label="Back"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <div className="text-sm font-semibold text-slate-900">My Profile</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <button
+              onClick={() => navigate(back)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Dashboard
+            </button>
+          </div>
         </div>
+      </div>
+
+      <div className="mx-auto max-w-2xl px-4 py-8">
 
         {/* Avatar + role */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-5">

@@ -28,7 +28,18 @@ type SubmissionRecord = {
   graded_at: string | null;
 };
 
-type Tab = "quizzes" | "assignments";
+type Tab = "quizzes" | "assignments" | "exercises";
+
+type ExerciseAttemptRecord = {
+  attempt_id: number;
+  lesson_id: number;
+  lesson_title: string;
+  course_id: number;
+  course_title: string;
+  score_pct: number;
+  submitted_at: string | null;
+  total_questions: number;
+};
 
 function fmt(iso: string | null) {
   if (!iso) return "—";
@@ -79,6 +90,7 @@ export default function StudentHistory() {
   const [tab, setTab] = useState<Tab>("quizzes");
   const [quizzes, setQuizzes] = useState<QuizAttempt[]>([]);
   const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
+  const [exercises, setExercises] = useState<ExerciseAttemptRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -87,12 +99,14 @@ export default function StudentHistory() {
     async function load() {
       setLoading(true);
       try {
-        const [qRes, sRes] = await Promise.all([
+        const [qRes, sRes, eRes] = await Promise.all([
           api.get<QuizAttempt[]>("/api/v1/me/quiz-attempts"),
           api.get<SubmissionRecord[]>("/api/v1/me/submission-history"),
+          api.get<ExerciseAttemptRecord[]>("/api/v1/me/exercise-attempts"),
         ]);
         setQuizzes(qRes.data);
         setSubmissions(sRes.data);
+        setExercises(eRes.data);
       } catch {
         setError("Failed to load history");
       } finally {
@@ -110,6 +124,7 @@ export default function StudentHistory() {
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: "quizzes",     label: "Quiz Attempts",          count: quizzes.length },
     { key: "assignments", label: "Assignment Submissions",  count: submissions.length },
+    { key: "exercises",   label: "AI Exercises",           count: exercises.length },
   ];
 
   return (
@@ -256,6 +271,52 @@ export default function StudentHistory() {
                             className="text-xs font-medium text-sky-600 hover:text-sky-800"
                           >
                             Go to course →
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {!loading && !error && tab === "exercises" && (
+          <>
+            {exercises.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-400 shadow-sm">
+                No exercise attempts yet. Go to a lesson and click "Generate Exercises" to practice.
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <th className="px-5 py-3">Lesson</th>
+                      <th className="px-5 py-3">Course</th>
+                      <th className="px-5 py-3">Score</th>
+                      <th className="px-5 py-3">Questions</th>
+                      <th className="px-5 py-3">Submitted</th>
+                      <th className="px-5 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exercises.map((e) => (
+                      <tr key={e.attempt_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                        <td className="px-5 py-3.5 font-medium text-slate-800">{e.lesson_title}</td>
+                        <td className="px-5 py-3.5 text-slate-500">{e.course_title}</td>
+                        <td className="px-5 py-3.5">
+                          <ScoreChip score={e.score_pct} />
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-500">{e.total_questions}</td>
+                        <td className="px-5 py-3.5 text-slate-500">{fmt(e.submitted_at)}</td>
+                        <td className="px-5 py-3.5">
+                          <Link
+                            to={`/student/lessons/${e.lesson_id}/exercises`}
+                            className="text-xs font-medium text-violet-600 hover:text-violet-800"
+                          >
+                            Practice again →
                           </Link>
                         </td>
                       </tr>

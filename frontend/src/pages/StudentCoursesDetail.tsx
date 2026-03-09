@@ -6,6 +6,22 @@ import RichEditor from "../components/RichEditor";
 import FileUpload from "../components/FileUpload";
 import NotificationBell from "../components/NotificationBell";
 
+function resourceUrl(platform: string, searchQuery: string): string {
+  const q = encodeURIComponent(searchQuery);
+  const p = platform.toLowerCase();
+  if (p.includes("youtube")) return `https://www.youtube.com/results?search_query=${q}`;
+  if (p.includes("khan")) return `https://www.khanacademy.org/search?search_term=${q}`;
+  if (p.includes("freecodecamp")) return `https://www.freecodecamp.org/news/search/?query=${q}`;
+  if (p.includes("mdn")) return `https://developer.mozilla.org/en-US/search?q=${q}`;
+  if (p.includes("coursera")) return `https://www.coursera.org/search?query=${q}`;
+  if (p.includes("edx")) return `https://www.edx.org/search?q=${q}`;
+  if (p.includes("wikipedia")) return `https://en.wikipedia.org/w/index.php?search=${q}`;
+  if (p.includes("geeksforgeeks")) return `https://www.geeksforgeeks.org/search/?q=${q}`;
+  if (p.includes("w3schools")) return `https://www.google.com/search?q=site%3Aw3schools.com+${q}`;
+  if (p.includes("mit")) return `https://ocw.mit.edu/search/?q=${q}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(platform + " " + searchQuery)}`;
+}
+
 type Module = { id: number; course_id: number; title: string; order_index: number };
 type Lesson = { id: number; module_id: number; title: string; content?: string; order_index: number };
 type Resource = {
@@ -82,6 +98,13 @@ export default function StudentCourseDetail() {
   const [assignmentsByLesson, setAssignmentsByLesson] = useState<Record<number, Assignment[]>>({});
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<Record<number, Submission | null>>({});
   const [progressByLesson, setProgressByLesson] = useState<Record<number, number>>({});
+
+  // AI resources per lesson
+  type AiResource = { title: string; platform: string; description: string; resource_type: string; search_query: string };
+  const [aiResourcesByLesson, setAiResourcesByLesson] = useState<Record<number, AiResource[]>>({});
+  const [aiResourcesLoading, setAiResourcesLoading] = useState<Record<number, boolean>>({});
+  const [aiResourcesLoaded, setAiResourcesLoaded] = useState<Record<number, boolean>>({});
+  const [aiResourcesError, setAiResourcesError] = useState<Record<number, string>>({});
   const [allComplete, setAllComplete] = useState(false);
   const [certDownloading, setCertDownloading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -137,6 +160,23 @@ export default function StudentCourseDetail() {
       setNotesByLesson((p) => ({ ...p, [lesson_id]: res.data.content_html ?? "" }));
     } catch { /* ignore */ } finally {
       setNoteLoaded((p) => ({ ...p, [lesson_id]: true }));
+    }
+  }
+
+  async function loadAiResources(lesson_id: number) {
+    if (aiResourcesLoaded[lesson_id] || aiResourcesLoading[lesson_id]) return;
+    setAiResourcesLoading((p) => ({ ...p, [lesson_id]: true }));
+    setAiResourcesError((p) => ({ ...p, [lesson_id]: "" }));
+    try {
+      const res = await api.post<{ resources: AiResource[] }>(`/api/v1/lessons/${lesson_id}/ai-resources`);
+      setAiResourcesByLesson((p) => ({ ...p, [lesson_id]: res.data.resources || [] }));
+      setAiResourcesLoaded((p) => ({ ...p, [lesson_id]: true }));
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = e?.response?.data?.detail || e?.message || "Failed to load AI resources";
+      setAiResourcesError((p) => ({ ...p, [lesson_id]: msg }));
+    } finally {
+      setAiResourcesLoading((p) => ({ ...p, [lesson_id]: false }));
     }
   }
 
@@ -264,16 +304,19 @@ export default function StudentCourseDetail() {
           setSubmissionsByAssignment(subMap);
         }
 
-        // Determine if all lessons are complete (for certificate)
-        const allLessons = Object.values(lessonsMap).flat();
-        if (allLessons.length > 0) {
-          try {
-            // Re-use progress already tracked; just check via API
-            const progressRes = await api.get<{ items: { course_id: number; progress_pct: number }[] }>("/api/v1/me/courses");
-            const courseEntry = (progressRes.data?.items || []).find((c) => c.course_id === course_id);
-            if (courseEntry && courseEntry.progress_pct >= 100) setAllComplete(true);
-          } catch { /* ignore */ }
-        }
+        // Load per-lesson progress for this course
+        try {
+          const progRes = await api.get<Record<string, number>>(`/api/v1/courses/${course_id}/my-progress`);
+          const progMap: Record<number, number> = {};
+          for (const [k, v] of Object.entries(progRes.data)) {
+            progMap[Number(k)] = v;
+          }
+          setProgressByLesson(progMap);
+          const allLessons = Object.values(lessonsMap).flat();
+          if (allLessons.length > 0 && allLessons.every((l) => (progMap[l.id] ?? 0) >= 100)) {
+            setAllComplete(true);
+          }
+        } catch { /* ignore */ }
       } catch (err: unknown) {
         const e = err as { response?: { data?: { detail?: string } }; message?: string };
         setError(e?.response?.data?.detail || e?.message || "Failed to load course content");
@@ -347,40 +390,47 @@ export default function StudentCourseDetail() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Course</h1>
-            <p className="mt-1 text-sm text-slate-500">Lessons, resources, and progress</p>
+      {/* Top nav bar */}
+      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link to="/student/courses" className="shrink-0 text-slate-400 hover:text-slate-700 transition-colors">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+              </svg>
+            </Link>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-900 truncate">Course Content</div>
+              <div className="text-xs text-slate-400">Lessons, resources, and progress</div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {allComplete && (
               <button
                 onClick={downloadCertificate}
                 disabled={certDownloading}
-                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {certDownloading ? "Generating…" : "Download Certificate"}
               </button>
             )}
             <NotificationBell />
-            <Link
-              to="/student/courses"
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Back to courses
-            </Link>
           </div>
         </div>
+      </div>
 
+      <div className="mx-auto max-w-5xl px-4 py-6">
         {/* Announcements banner */}
         {announcements.length > 0 && (
-          <div className="mt-5 space-y-2">
+          <div className="mb-5 space-y-2">
             {announcements.map((ann) => (
               <div key={ann.id} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-amber-500 shrink-0 mt-0.5">📢</span>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 shrink-0 h-5 w-5 rounded-full bg-amber-400 flex items-center justify-center">
+                    <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3m.38 1.125a23.91 23.91 0 011.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 001.014-5.395m0-3.46c.495.413.811 1.035.811 1.73 0 .695-.316 1.317-.811 1.73m0-3.46a24.347 24.347 0 010 3.46" />
+                    </svg>
+                  </div>
                   <div>
                     <div className="text-sm font-semibold text-amber-900">{ann.title}</div>
                     {ann.body && <p className="mt-0.5 text-xs text-amber-800 leading-relaxed">{ann.body}</p>}
@@ -394,17 +444,20 @@ export default function StudentCourseDetail() {
 
         {/* Pending Peer Reviews */}
         {pendingReviews.length > 0 && (
-          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-            <h3 className="text-sm font-semibold text-amber-900 mb-3">📝 Peer Reviews to Complete ({pendingReviews.length})</h3>
+          <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">
+              Peer Reviews to Complete
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingReviews.length}</span>
+            </h3>
             <div className="space-y-3">
               {pendingReviews.map((pr) => (
-                <div key={pr.peer_review_id} className="rounded-2xl border border-amber-100 bg-white p-4 space-y-2">
+                <div key={pr.peer_review_id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-2">
                   <div className="text-xs font-semibold text-slate-800">{pr.assignment_title}</div>
                   {pr.submission_snippet && (
-                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 line-clamp-3">{pr.submission_snippet}</div>
+                    <div className="rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs text-slate-600 line-clamp-3">{pr.submission_snippet}</div>
                   )}
                   {reviewSubmitted[pr.peer_review_id] ? (
-                    <div className="text-xs text-emerald-600 font-medium">✓ Review submitted</div>
+                    <div className="text-xs text-emerald-600 font-medium">Review submitted</div>
                   ) : (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -413,7 +466,7 @@ export default function StudentCourseDetail() {
                           type="number" min={0} max={100}
                           value={reviewScore[pr.peer_review_id] ?? ""}
                           onChange={(e) => setReviewScore((p) => ({ ...p, [pr.peer_review_id]: e.target.value }))}
-                          className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none"
+                          className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-slate-400"
                         />
                       </div>
                       <textarea
@@ -421,12 +474,12 @@ export default function StudentCourseDetail() {
                         onChange={(e) => setReviewFeedback((p) => ({ ...p, [pr.peer_review_id]: e.target.value }))}
                         placeholder="Feedback (optional)"
                         rows={2}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none resize-none"
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none resize-none focus:border-slate-400"
                       />
                       <button
                         onClick={() => submitPeerReview(pr.peer_review_id)}
                         disabled={submittingReview[pr.peer_review_id] || !(reviewScore[pr.peer_review_id] ?? "").trim()}
-                        className="rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                       >
                         {submittingReview[pr.peer_review_id] ? "Submitting…" : "Submit Review"}
                       </button>
@@ -440,20 +493,19 @@ export default function StudentCourseDetail() {
 
         {/* Leaderboard */}
         {leaderboard.length > 0 && (
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">🏆 Course Leaderboard</h3>
+          <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">Course Leaderboard</h3>
             <div className="space-y-1">
               {leaderboard.map((entry) => (
                 <div
                   key={entry.rank}
-                  className={`flex items-center gap-3 py-2 px-3 rounded-xl ${entry.is_me ? "bg-sky-50 border border-sky-200" : ""}`}
+                  className={`flex items-center gap-3 py-2 px-3 rounded-xl ${entry.is_me ? "bg-sky-50 border border-sky-100" : ""}`}
                 >
-                  <span className="text-sm font-bold text-slate-400 w-6">#{entry.rank}</span>
-                  <span className={`flex-1 text-sm ${entry.is_me ? "font-semibold text-sky-700" : "text-slate-700"}`}>
+                  <span className="text-xs font-bold text-slate-400 w-5">#{entry.rank}</span>
+                  <span className={`flex-1 text-sm truncate ${entry.is_me ? "font-semibold text-sky-700" : "text-slate-700"}`}>
                     {entry.student_name}{entry.is_me ? " (you)" : ""}
                   </span>
-                  <span className="text-xs text-amber-600 font-medium">⭐ {entry.total_xp} XP</span>
-                  <span className="text-xs text-slate-400">Lv.{entry.level}</span>
+                  <span className="text-xs text-slate-500 font-medium">{entry.total_xp} pts</span>
                 </div>
               ))}
             </div>
@@ -461,25 +513,33 @@ export default function StudentCourseDetail() {
         )}
 
         {error && (
-          <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="font-semibold">{error}</div>
-          </div>
+          <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
 
         {loading ? (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 text-slate-600">Loading…</div>
+          <div className="space-y-3">
+            {[1, 2].map((i) => <div key={i} className="h-32 rounded-2xl border border-slate-200 bg-white animate-pulse" />)}
+          </div>
         ) : modules.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-            <div className="text-slate-400 text-3xl mb-2">📖</div>
-            <div className="text-sm text-slate-500">No content yet. Check back later.</div>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+              <svg className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+            </div>
+            <div className="text-sm font-medium text-slate-600">No content yet</div>
+            <div className="mt-1 text-xs text-slate-400">Check back when your teacher adds lessons.</div>
           </div>
         ) : (
-          <div className="mt-6 space-y-4">
+          <div className="space-y-4">
             {modules.map((mod) => (
-              <div key={mod.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="text-sm font-semibold text-slate-900">{mod.title}</div>
+              <div key={mod.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                <div className="flex items-center justify-between gap-2 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+                  <div className="text-sm font-semibold text-slate-900">{mod.title}</div>
+                  <span className="text-xs text-slate-400 shrink-0">{(lessonsByModule[mod.id] || []).length} {(lessonsByModule[mod.id] || []).length === 1 ? "lesson" : "lessons"}</span>
+                </div>
 
-                <div className="mt-4 space-y-3">
+                <div className="p-5 space-y-3">
                   {(lessonsByModule[mod.id] || []).length === 0 && (
                     <div className="text-xs text-slate-400">No lessons in this module yet.</div>
                   )}
@@ -508,8 +568,9 @@ export default function StudentCourseDetail() {
                         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
                           <div className="truncate text-sm font-semibold text-slate-900">{lesson.title}</div>
                           {completed ? (
-                            <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
-                              ✓ Completed
+                            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                              Completed
                             </span>
                           ) : (
                             <span className="shrink-0 text-xs text-slate-400">{pct}% done</span>
@@ -525,6 +586,7 @@ export default function StudentCourseDetail() {
                                 setLessonTab((p) => ({ ...p, [lesson.id]: t.key }));
                                 if (t.key === "notes") loadNote(lesson.id);
                                 if (t.key === "discussion") loadComments(lesson.id);
+                                if (t.key === "resources") loadAiResources(lesson.id);
                               }}
                               className={`flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition border-b-2 ${
                                 activeTab === t.key
@@ -554,44 +616,33 @@ export default function StudentCourseDetail() {
                                 <div className="text-xs text-slate-400 italic">No lesson content yet.</div>
                               )}
 
-                              {/* Progress controls */}
+                              {/* Auto-tracked progress */}
                               <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                                 <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
                                   <span className="font-medium text-slate-600">Your progress</span>
                                   <span className="font-bold text-slate-700">{pct}%</span>
                                 </div>
-                                <div className="h-2 w-full rounded-full bg-slate-200 mb-3">
+                                <div className="h-2 w-full rounded-full bg-slate-200">
                                   <div
                                     className={`h-2 rounded-full transition-all ${completed ? "bg-emerald-500" : "bg-sky-500"}`}
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                  {[25, 50, 75].map((v) => (
-                                    <button
-                                      key={v}
-                                      onClick={() => setProgress(lesson.id, v)}
-                                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                                    >
-                                      {v}%
-                                    </button>
-                                  ))}
-                                  <button
-                                    onClick={() => setProgress(lesson.id, 100)}
-                                    className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                                  >
-                                    Mark complete
-                                  </button>
-                                </div>
+                                <p className="mt-2 text-[11px] text-slate-400">
+                                  {completed
+                                    ? "Lesson complete"
+                                    : "Progress is tracked automatically as you open lessons, take quizzes, complete exercises, and submit assignments."}
+                                </p>
                               </div>
                             </div>
                           )}
 
                           {/* ── Resources ── */}
                           {activeTab === "resources" && (
-                            <div>
+                            <div className="space-y-4">
+                              {/* Teacher-added resources */}
                               {resources.length === 0 ? (
-                                <div className="text-xs text-slate-400 py-4 text-center">No resources for this lesson.</div>
+                                <div className="text-xs text-slate-400 py-2 text-center">No resources added by teacher yet.</div>
                               ) : (
                                 <div className="space-y-2">
                                   {resources.map((res) => (
@@ -612,12 +663,68 @@ export default function StudentCourseDetail() {
                                   ))}
                                 </div>
                               )}
+
+                              {/* AI-recommended free resources */}
+                              <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-xs font-semibold text-indigo-900">AI-Recommended Free Resources</div>
+                                  {(aiResourcesLoaded[lesson.id] || aiResourcesError[lesson.id]) && (
+                                    <button
+                                      onClick={() => {
+                                        setAiResourcesLoaded((p) => ({ ...p, [lesson.id]: false }));
+                                        setAiResourcesByLesson((p) => ({ ...p, [lesson.id]: [] }));
+                                        setAiResourcesError((p) => ({ ...p, [lesson.id]: "" }));
+                                        loadAiResources(lesson.id);
+                                      }}
+                                      className="text-[11px] text-indigo-600 hover:underline"
+                                    >
+                                      Retry
+                                    </button>
+                                  )}
+                                </div>
+                                {aiResourcesLoading[lesson.id] ? (
+                                  <div className="text-[11px] text-indigo-500 py-2">Finding the best free resources for this lesson…</div>
+                                ) : aiResourcesError[lesson.id] ? (
+                                  <div className="text-[11px] text-rose-600 py-1">{aiResourcesError[lesson.id]}</div>
+                                ) : (aiResourcesByLesson[lesson.id] || []).length === 0 ? (
+                                  <div className="text-[11px] text-indigo-400 italic">Loading recommendations…</div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {(aiResourcesByLesson[lesson.id] || []).map((r, i) => {
+                                      const typeLabel = r.resource_type === "video" ? "Video" : r.resource_type === "article" ? "Article" : r.resource_type === "course" ? "Course" : r.resource_type === "documentation" ? "Docs" : "Tutorial";
+                                      const url = resourceUrl(r.platform, r.search_query);
+                                      return (
+                                        <a
+                                          key={i}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="block rounded-lg border border-indigo-100 bg-white p-2.5 hover:border-indigo-300 hover:shadow-sm transition"
+                                        >
+                                          <div className="flex items-start gap-2">
+                                            <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 uppercase tracking-wide">{typeLabel}</span>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="text-xs font-semibold text-slate-900 leading-tight">{r.title}</div>
+                                              <div className="text-[11px] text-indigo-600 font-medium">{r.platform}</div>
+                                              <p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed">{r.description}</p>
+                                              <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-700">
+                                                Open on {r.platform}
+                                                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
 
                           {/* ── Quizzes ── */}
                           {activeTab === "quizzes" && (
-                            <div>
+                            <div className="space-y-3">
                               {quizzes.length === 0 ? (
                                 <div className="text-xs text-slate-400 py-4 text-center">No quizzes for this lesson.</div>
                               ) : (
@@ -634,6 +741,23 @@ export default function StudentCourseDetail() {
                                   ))}
                                 </div>
                               )}
+                              {/* AI Exercises */}
+                              <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                  <div>
+                                    <div className="text-xs font-semibold text-violet-900">AI Practice Exercises</div>
+                                    <p className="text-[11px] text-violet-700 mt-0.5">
+                                      Generate 10 personalized questions based on this lesson's content.
+                                    </p>
+                                  </div>
+                                  <Link
+                                    to={`/student/lessons/${lesson.id}/exercises`}
+                                    className="shrink-0 rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 transition"
+                                  >
+                                    Generate Exercises
+                                  </Link>
+                                </div>
+                              </div>
                             </div>
                           )}
 

@@ -158,6 +158,58 @@ def my_courses_student(
     return {"items": results}
 
 
+@router.get("/me/people")
+def my_people(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.student)),
+):
+    """Return teachers and fellow students grouped by enrolled course."""
+    enrollments = db.query(Enrollment).filter(
+        Enrollment.student_id == user.id,
+        Enrollment.status == "active",
+    ).all()
+
+    result = []
+    for enroll in enrollments:
+        course = db.get(Course, enroll.course_id)
+        if not course:
+            continue
+
+        teacher = db.get(User, course.teacher_id)
+        people = []
+        if teacher:
+            people.append({
+                "id": teacher.id,
+                "full_name": teacher.full_name,
+                "email": teacher.email,
+                "role": "teacher",
+            })
+
+        fellow_enrolls = db.query(Enrollment, User).join(
+            User, User.id == Enrollment.student_id
+        ).filter(
+            Enrollment.course_id == course.id,
+            Enrollment.status == "active",
+            Enrollment.student_id != user.id,
+        ).all()
+
+        for _, student in fellow_enrolls:
+            people.append({
+                "id": student.id,
+                "full_name": student.full_name,
+                "email": student.email,
+                "role": "student",
+            })
+
+        result.append({
+            "course_id": course.id,
+            "course_title": course.title,
+            "people": people,
+        })
+
+    return result
+
+
 @router.get("/me/teaching")
 def my_courses_teacher(
     db: Session = Depends(get_db),

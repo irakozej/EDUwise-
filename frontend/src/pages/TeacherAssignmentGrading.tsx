@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
+import TeacherPageNav from "../components/TeacherPageNav";
 
 type Assignment = {
   id: number;
@@ -126,29 +127,21 @@ export default function TeacherAssignmentGrading() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <TeacherPageNav
+        title={assignment ? assignment.title : "Assignment Grading"}
+        subtitle={assignment?.description ?? "Grade student submissions"}
+        backTo="/teacher"
+        backLabel="Dashboard"
+      />
       <div className="mx-auto max-w-4xl px-4 py-8">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        {/* Assignment meta + stats */}
+        <div className="flex items-start justify-between gap-4 mb-6">
           <div>
-            <Link
-              to={assignment ? `/teacher/courses/${assignment.lesson_id}` : "/teacher"}
-              className="text-xs text-slate-500 hover:text-slate-900 underline"
-            >
-              ← Back
-            </Link>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-900">
-              {assignment ? assignment.title : "Assignment"}
-            </h1>
-            {assignment?.description && (
-              <p className="mt-1 text-sm text-slate-500">{assignment.description}</p>
-            )}
             {assignment && (
-              <div className="mt-2 flex gap-4 text-xs text-slate-400">
+              <div className="flex gap-4 text-xs text-slate-400">
                 <span>Max score: <strong className="text-slate-600">{assignment.max_score}</strong></span>
                 {assignment.due_date && (
-                  <span>
-                    Due: <strong className="text-slate-600">{new Date(assignment.due_date).toLocaleString()}</strong>
-                  </span>
+                  <span>Due: <strong className="text-slate-600">{new Date(assignment.due_date).toLocaleString()}</strong></span>
                 )}
               </div>
             )}
@@ -170,7 +163,11 @@ export default function TeacherAssignmentGrading() {
           <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-500">Loading…</div>
         ) : submissions.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-            <div className="text-4xl mb-2">📭</div>
+            <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+              <svg className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
+              </svg>
+            </div>
             <div className="text-sm text-slate-500 font-medium">No submissions yet</div>
             <div className="mt-1 text-xs text-slate-400">Students haven't submitted this assignment yet.</div>
           </div>

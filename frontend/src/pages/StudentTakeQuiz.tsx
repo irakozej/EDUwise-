@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
+import StudentPageNav from "../components/StudentPageNav";
 
 type QuestionOut = {
   id: number;
@@ -160,28 +161,24 @@ export default function StudentTakeQuiz() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <StudentPageNav
+        title="Take Quiz"
+        subtitle={`Quiz #${quiz_id}`}
+        backTo="/student/quizzes"
+        backLabel="Quizzes"
+      />
       <div className="mx-auto max-w-3xl px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Take Quiz</h1>
-            <p className="mt-1 text-sm text-slate-500">Quiz #{quiz_id}</p>
+        {/* Timer */}
+        {timeLeft !== null && !submitted && (
+          <div className="mb-4 flex justify-end">
+            <div className={`rounded-xl border px-3 py-1.5 text-sm font-mono font-semibold tabular-nums ${
+              isLow ? "border-rose-300 bg-rose-50 text-rose-700" : "border-slate-200 bg-white text-slate-700"
+            }`}>
+              {formatTime(timeLeft)}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {timeLeft !== null && !submitted && (
-              <div className={`rounded-xl border px-3 py-1.5 text-sm font-mono font-semibold tabular-nums ${
-                isLow ? "border-rose-300 bg-rose-50 text-rose-700" : "border-slate-200 bg-white text-slate-700"
-              }`}>
-                {isLow ? "⏰ " : "⏱ "}{formatTime(timeLeft)}
-              </div>
-            )}
-            <Link
-              to="/student/quizzes"
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Back to quizzes
-            </Link>
-          </div>
+        )}
+        <div className="hidden">
         </div>
 
         {error && (

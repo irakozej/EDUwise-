@@ -20,44 +20,10 @@ type RiskData = {
   features?: Record<string, number>;
 };
 
-type Recommendation = {
-  lesson_id?: number;
-  resource_id?: number;
-  title: string;
-  reason?: string;
-  url?: string | null;
-  format?: string | null;
-  difficulty?: string | null;
-  topic?: string | null;
-  course_id?: number;
-};
-
-type RecommendationsData = {
-  student_id: number;
-  course_ids?: number[];
-  recommendations: Recommendation[];
-};
-
-type StreakData = {
-  current_streak: number;
-  longest_streak: number;
-  total_study_days: number;
-  last_study_date: string | null;
-};
-
-type XPData = {
-  total_xp: number;
-  level: number;
-  xp_to_next_level: number;
-  recent_events: { event_type: string; xp_earned: number; created_at: string }[];
-};
-
-type EarnedBadge = {
-  badge_key: string;
-  name: string;
-  desc: string;
-  icon: string;
-  earned_at: string;
+type CoursePeople = {
+  course_id: number;
+  course_title: string;
+  people: { id: number; full_name: string; email: string; role: string }[];
 };
 
 function classNames(...xs: Array<string | boolean | undefined | null>) {
@@ -92,15 +58,21 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [risk, setRisk] = useState<RiskData | null>(null);
-  const [recs, setRecs] = useState<RecommendationsData | null>(null);
-  const [streak, setStreak] = useState<StreakData | null>(null);
-  const [xp, setXp] = useState<XPData | null>(null);
-  const [badges, setBadges] = useState<EarnedBadge[]>([]);
 
+  const [people, setPeople] = useState<CoursePeople[]>([]);
+  const [activeTab, setActiveTab] = useState<"overview" | "people">("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgUnread, setMsgUnread] = useState(0);
+
+  // AI study suggestions (lazy — load on demand)
+  type AiSuggestion = { title: string; description: string; priority: "high" | "medium" | "low"; category: string };
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
+  const [aiSuggestionsOpen, setAiSuggestionsOpen] = useState(false);
+  const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  const [aiSuggestionsLoaded, setAiSuggestionsLoaded] = useState(false);
+  const [aiSuggestionsError, setAiSuggestionsError] = useState("");
 
   const token = useMemo(() => getAccessToken(), []);
 
@@ -109,21 +81,15 @@ export default function StudentDashboard() {
     setError("");
 
     try {
-      const [d, r, rec, streakRes, xpRes, badgesRes] = await Promise.all([
+      const [d, r, peopleRes] = await Promise.all([
         api.get<DashboardData>("/api/v1/me/dashboard"),
         api.get<RiskData>("/api/v1/me/risk-score"),
-        api.get<RecommendationsData>("/api/v1/me/recommendations"),
-        api.get<StreakData>("/api/v1/me/streak").catch(() => null),
-        api.get<XPData>("/api/v1/me/xp").catch(() => null),
-        api.get<{ earned: EarnedBadge[] }>("/api/v1/me/badges").catch(() => null),
+        api.get<CoursePeople[]>("/api/v1/me/people").catch(() => ({ data: [] })),
       ]);
 
       setDashboard(d.data);
       setRisk(r.data);
-      setRecs(rec.data);
-      if (streakRes) setStreak(streakRes.data);
-      if (xpRes) setXp(xpRes.data);
-      if (badgesRes) setBadges(badgesRes.data.earned ?? []);
+      setPeople(peopleRes.data);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setError(e?.response?.data?.detail || e?.message || "Failed to load data");
@@ -156,6 +122,30 @@ export default function StudentDashboard() {
   function logout() {
     clearAccessToken();
     window.location.href = "/";
+  }
+
+  async function loadAiSuggestions() {
+    if (aiSuggestionsLoaded || aiSuggestionsLoading) return;
+    setAiSuggestionsLoading(true);
+    setAiSuggestionsError("");
+    try {
+      const res = await api.post<{ suggestions: AiSuggestion[] }>("/api/v1/me/ai-study-suggestions");
+      setAiSuggestions(res.data.suggestions || []);
+      setAiSuggestionsLoaded(true);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setAiSuggestionsError(e?.response?.data?.detail || e?.message || "Failed to load suggestions");
+    } finally {
+      setAiSuggestionsLoading(false);
+    }
+  }
+
+  function toggleAiSuggestions() {
+    setAiSuggestionsOpen((prev) => {
+      const next = !prev;
+      if (next) loadAiSuggestions();
+      return next;
+    });
   }
 
   const riskTone: "green" | "yellow" | "red" | "gray" = (() => {
@@ -299,112 +289,162 @@ export default function StudentDashboard() {
             </div>
           </div>
 
-          {/* Streak */}
-          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-orange-500">Study Streak</div>
-                <div className="mt-1 text-3xl font-bold text-orange-900">
-                  {streak ? `${streak.current_streak}` : loading ? "…" : "0"}
-                  <span className="text-base font-normal text-orange-600 ml-1">days</span>
+        </div>
+
+        {/* Tab bar */}
+        <div className="mt-6 flex gap-1 rounded-2xl border border-slate-200 bg-white p-1 w-fit shadow-sm">
+          {(["overview", "people"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`rounded-xl px-5 py-2 text-sm font-medium capitalize transition ${
+                activeTab === tab ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              {tab === "overview" ? "Overview" : "People"}
+            </button>
+          ))}
+        </div>
+
+        {/* People tab */}
+        {activeTab === "people" && (
+          <div className="mt-6 space-y-5">
+            {loading && <div className="text-sm text-slate-400">Loading…</div>}
+            {!loading && people.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+                No courses found. Enroll in a course to see people.
+              </div>
+            )}
+            {people.map((group) => (
+              <div key={group.course_id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                  <span className="text-sm font-semibold text-slate-800">{group.course_title}</span>
+                  <span className="ml-2 text-xs text-slate-400">{group.people.length} {group.people.length === 1 ? "person" : "people"}</span>
                 </div>
-                <div className="mt-1 text-xs text-orange-600">
-                  Longest: {streak?.longest_streak ?? 0} days
+                <div className="divide-y divide-slate-100">
+                  {group.people.map((person) => (
+                    <div key={person.id} className="flex items-center gap-3 px-5 py-3">
+                      <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                        person.role === "teacher"
+                          ? "bg-violet-100 text-violet-700"
+                          : "bg-sky-100 text-sky-700"
+                      }`}>
+                        {person.full_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-900 truncate">{person.full_name}</div>
+                        <div className="text-xs text-slate-400 truncate">{person.email}</div>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        person.role === "teacher"
+                          ? "bg-violet-50 text-violet-700 border border-violet-200"
+                          : "bg-sky-50 text-sky-700 border border-sky-200"
+                      }`}>
+                        {person.role}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div className="text-2xl">🔥</div>
-            </div>
+            ))}
           </div>
+        )}
 
-          {/* XP */}
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-wide text-amber-600">XP Points</div>
-                <div className="mt-1 text-3xl font-bold text-amber-900">
-                  {xp ? xp.total_xp : loading ? "…" : "0"}
+        {/* Main grid — Overview tab only */}
+        {activeTab === "overview" && <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          {/* AI Study Suggestions */}
+          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            {/* Collapsed header — always visible */}
+            <button
+              onClick={toggleAiSuggestions}
+              className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-600">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                  </svg>
                 </div>
-                <div className="mt-1 text-xs text-amber-600">Level {xp?.level ?? 1}</div>
-                {xp && (
-                  <div className="mt-2 h-1.5 w-full rounded-full bg-amber-200">
-                    <div
-                      className="h-1.5 rounded-full bg-amber-500 transition-all"
-                      style={{ width: `${Math.min(100, Math.round(((xp.total_xp % 100) / 100) * 100))}%` }}
-                    />
+                <div className="text-left min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">AI Study Recommendations</div>
+                  <div className="text-xs text-slate-400">Personalised suggestions based on your progress</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700">AI</span>
+                <svg
+                  className={`h-4 w-4 text-slate-400 transition-transform ${aiSuggestionsOpen ? "rotate-180" : ""}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </button>
+
+            {/* Expanded content */}
+            {aiSuggestionsOpen && (
+              <div className="border-t border-slate-100 px-5 pb-5 pt-4">
+                {aiSuggestionsLoading && (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-xl bg-slate-100 animate-pulse" />
+                    ))}
+                  </div>
+                )}
+
+                {aiSuggestionsError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {aiSuggestionsError}
+                    <button
+                      onClick={() => { setAiSuggestionsLoaded(false); loadAiSuggestions(); }}
+                      className="ml-3 underline text-rose-600 hover:text-rose-800"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {!aiSuggestionsLoading && !aiSuggestionsError && aiSuggestions.length === 0 && aiSuggestionsLoaded && (
+                  <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                    No suggestions generated. Enroll in a course to get started.
+                  </div>
+                )}
+
+                {!aiSuggestionsLoading && aiSuggestions.length > 0 && (
+                  <div className="space-y-3">
+                    {aiSuggestions.map((s, idx) => {
+                      const priorityStyle =
+                        s.priority === "high" ? "bg-rose-100 text-rose-700" :
+                        s.priority === "medium" ? "bg-amber-100 text-amber-700" :
+                        "bg-slate-100 text-slate-600";
+                      const categoryStyle =
+                        s.category === "review" ? "bg-violet-100 text-violet-700" :
+                        s.category === "practice" ? "bg-sky-100 text-sky-700" :
+                        s.category === "assess" ? "bg-emerald-100 text-emerald-700" :
+                        "bg-indigo-100 text-indigo-700";
+                      return (
+                        <div key={idx} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="font-medium text-sm text-slate-900 leading-snug">{s.title}</div>
+                            <div className="flex shrink-0 gap-1.5">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${priorityStyle}`}>{s.priority}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${categoryStyle}`}>{s.category}</span>
+                            </div>
+                          </div>
+                          <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">{s.description}</p>
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={() => { setAiSuggestionsLoaded(false); setAiSuggestions([]); loadAiSuggestions(); }}
+                      className="mt-1 text-xs text-sky-600 hover:underline"
+                    >
+                      Refresh suggestions
+                    </button>
                   </div>
                 )}
               </div>
-              <div className="text-2xl">⭐</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Badges */}
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">Your Badges</h3>
-          {loading ? (
-            <div className="text-xs text-slate-400">Loading…</div>
-          ) : badges.length === 0 ? (
-            <p className="text-xs text-slate-400">Complete lessons and quizzes to earn badges.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {badges.map((b) => (
-                <div
-                  key={b.badge_key}
-                  title={b.desc}
-                  className="flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-xs font-medium text-amber-800"
-                >
-                  <span>{b.icon}</span>
-                  <span>{b.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Main grid */}
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          {/* Recommendations */}
-          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Recommended next steps</h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Personalised for your <span className="font-medium text-slate-700">enrolled courses</span>
-                </p>
-              </div>
-              <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">AI-powered</span>
-            </div>
-
-            <div className="space-y-3">
-              {loading && <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Loading…</div>}
-              {!loading && (recs?.recommendations?.length ?? 0) === 0 && (
-                <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
-                  No recommendations yet. Try opening a lesson or updating progress.
-                </div>
-              )}
-              {recs?.recommendations?.slice(0, 6).map((r, idx) => (
-                <div key={idx} className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{r.title}</div>
-                    <div className="mt-0.5 text-xs text-slate-500">{r.reason || "Based on your learning signals"}</div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {r.topic && <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">{r.topic}</span>}
-                      {r.difficulty && <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-700">{r.difficulty}</span>}
-                      {r.format && <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">{r.format}</span>}
-                    </div>
-                  </div>
-                  {r.url ? (
-                    <a href={r.url} target="_blank" rel="noreferrer"
-                      className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
-                      Open →
-                    </a>
-                  ) : (
-                    <span className="text-xs text-slate-400 shrink-0">No link</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            )}
           </div>
 
           {/* Activity */}
@@ -431,7 +471,7 @@ export default function StudentDashboard() {
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
         <footer className="mt-8 text-center text-xs text-slate-400">EduWise · Student view</footer>
       </div>

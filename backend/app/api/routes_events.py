@@ -39,4 +39,13 @@ def create_event(
     db.refresh(e)
 
     log_action(db, user.id, "CREATE", "Event", str(e.id))
+
+    # Auto-update lesson progress when a student opens a lesson
+    if payload.event_type == "lesson_open" and payload.lesson_id is not None:
+        try:
+            from app.services.progress import auto_update_progress
+            auto_update_progress(db, user.id, payload.lesson_id)
+        except Exception:
+            pass  # never break event logging
+
     return {"status": "ok", "event_id": e.id}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
+import StudentPageNav from "../components/StudentPageNav";
 
 type EnrolledCourse = {
   course_id: number;
@@ -18,6 +19,15 @@ type PrereqStatus = {
   missing: { course_id: number; title: string; progress_pct: number }[];
 };
 
+function ProgressBar({ pct }: { pct: number }) {
+  const color = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-sky-500" : "bg-slate-400";
+  return (
+    <div className="h-1.5 w-full rounded-full bg-slate-100">
+      <div className={`h-1.5 rounded-full transition-all ${color}`} style={{ width: `${Math.min(100, pct)}%` }} />
+    </div>
+  );
+}
+
 export default function StudentCourses() {
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [prereqStatus, setPrereqStatus] = useState<Record<number, PrereqStatus>>({});
@@ -27,11 +37,7 @@ export default function StudentCourses() {
   const token = useMemo(() => getAccessToken(), []);
 
   useEffect(() => {
-    if (!token) {
-      window.location.href = "/";
-      return;
-    }
-
+    if (!token) { window.location.href = "/"; return; }
     (async () => {
       setLoading(true);
       setError("");
@@ -39,7 +45,6 @@ export default function StudentCourses() {
         const res = await api.get<{ items: EnrolledCourse[] }>("/api/v1/me/courses");
         const items = res.data.items;
         setCourses(items);
-        // Fetch prereq status for each course in parallel (non-blocking)
         const statuses = await Promise.allSettled(
           items.map((c) =>
             api.get<PrereqStatus>(`/api/v1/courses/${c.course_id}/prerequisite-status`)
@@ -60,85 +65,116 @@ export default function StudentCourses() {
     })();
   }, [token]);
 
+  const completed = courses.filter((c) => c.progress_pct >= 100).length;
+  const inProgress = courses.filter((c) => c.progress_pct > 0 && c.progress_pct < 100).length;
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">My Courses</h1>
-            <p className="mt-1 text-sm text-slate-500">Courses you are enrolled in</p>
-          </div>
-          <Link
-            to="/student"
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Back to dashboard
-          </Link>
-        </div>
+      <StudentPageNav title="My Courses" subtitle="Courses you are enrolled in" />
 
-        {error && (
-          <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="font-semibold">{error}</div>
+      <div className="mx-auto max-w-5xl px-4 py-6">
+        {/* Stats row */}
+        {!loading && courses.length > 0 && (
+          <div className="mb-6 grid grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-xs font-medium text-slate-500">Enrolled</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900">{courses.length}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-xs font-medium text-slate-500">In Progress</div>
+              <div className="mt-1 text-2xl font-bold text-sky-700">{inProgress}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-xs font-medium text-slate-500">Completed</div>
+              <div className="mt-1 text-2xl font-bold text-emerald-700">{completed}</div>
+            </div>
           </div>
         )}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          {loading && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-600">
-              Loading…
-            </div>
-          )}
+        {error && (
+          <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+        )}
 
-          {!loading && courses.length === 0 && (
-            <div className="col-span-2 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-              <div className="text-slate-400 text-3xl mb-2">📚</div>
-              <div className="text-sm font-medium text-slate-600">You are not enrolled in any courses yet.</div>
-              <div className="mt-1 text-xs text-slate-400">Ask your teacher to enroll you.</div>
-            </div>
-          )}
-
-          {!loading &&
-            courses.map((c) => (
-              <Link
-                key={c.course_id}
-                to={`/student/courses/${c.course_id}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-300 transition"
-              >
-                <div className="text-sm font-semibold text-slate-900">{c.title}</div>
-                {prereqStatus[c.course_id] && !prereqStatus[c.course_id].met && (
-                  <div className="mt-1.5 flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 w-fit">
-                    <span>⚠️</span>
-                    <span>Finish <b>{prereqStatus[c.course_id].missing[0]?.title}</b> first</span>
-                  </div>
-                )}
-                <div className="mt-1 text-sm text-slate-500 line-clamp-2">
-                  {c.description || "No description"}
-                </div>
-
-                {/* Progress bar */}
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                    <span>Progress</span>
-                    <span className="font-medium text-slate-700">{c.progress_pct}%</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-1.5 rounded-full bg-slate-900 transition-all"
-                      style={{ width: `${c.progress_pct}%` }}
-                    />
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-400">
-                    <span>{c.lessons_completed}/{c.lessons_total} lessons</span>
-                    {c.avg_quiz_score !== null && (
-                      <span>Avg quiz: {Math.round(c.avg_quiz_score)}%</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-4 text-xs font-medium text-slate-500">Open course →</div>
-              </Link>
+        {loading && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-44 rounded-2xl border border-slate-200 bg-white animate-pulse" />
             ))}
-        </div>
+          </div>
+        )}
+
+        {!loading && courses.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+              <svg className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+            </div>
+            <div className="text-sm font-medium text-slate-700">No courses yet</div>
+            <div className="mt-1 text-xs text-slate-400">Ask your teacher to enroll you in a course.</div>
+          </div>
+        )}
+
+        {!loading && courses.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {courses.map((c) => {
+              const prereq = prereqStatus[c.course_id];
+              const locked = prereq && !prereq.met;
+              const pct = c.progress_pct;
+              const statusColor = pct >= 100 ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                : pct > 0 ? "text-sky-700 bg-sky-50 border-sky-200"
+                : "text-slate-500 bg-slate-100 border-slate-200";
+              const statusLabel = pct >= 100 ? "Completed" : pct > 0 ? "In progress" : "Not started";
+
+              return (
+                <Link
+                  key={c.course_id}
+                  to={`/student/courses/${c.course_id}`}
+                  className="group block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-300 transition-all"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <h2 className="text-sm font-semibold text-slate-900 group-hover:text-sky-700 transition-colors leading-snug">
+                      {c.title}
+                    </h2>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusColor}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  {locked && (
+                    <div className="mb-3 flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                      <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                      </svg>
+                      Complete <strong className="ml-0.5">{prereq.missing[0]?.title}</strong> first
+                    </div>
+                  )}
+
+                  {c.description && (
+                    <p className="mb-3 text-xs text-slate-500 line-clamp-2 leading-relaxed">{c.description}</p>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{c.lessons_completed} / {c.lessons_total} lessons</span>
+                      <span className="font-semibold text-slate-700">{pct}%</span>
+                    </div>
+                    <ProgressBar pct={pct} />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    {c.avg_quiz_score !== null ? (
+                      <span className="text-xs text-slate-400">Quiz avg: <span className="font-medium text-slate-600">{Math.round(c.avg_quiz_score)}%</span></span>
+                    ) : (
+                      <span className="text-xs text-slate-300">No quizzes taken</span>
+                    )}
+                    <span className="text-xs font-medium text-slate-400 group-hover:text-sky-600 transition-colors">Open →</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

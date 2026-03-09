@@ -238,43 +238,69 @@ export default function TeacherDashboard() {
           </div>
 
           {loading ? (
-            <div className="text-sm text-slate-500">Loading courses…</div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-40 rounded-2xl border border-slate-200 bg-white animate-pulse" />
+              ))}
+            </div>
           ) : courses.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-              <div className="text-slate-400 text-3xl mb-3">📚</div>
+              <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+                <svg className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                </svg>
+              </div>
               <div className="text-sm font-medium text-slate-600">No courses yet</div>
               <div className="mt-1 text-xs text-slate-400">Click "+ New Course" to create your first one.</div>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {courses.map((course, idx) => {
                 const accents = [
-                  { border: "border-violet-200", bg: "bg-violet-50", dot: "bg-violet-500", badge: "bg-violet-100 text-violet-700" },
-                  { border: "border-sky-200",    bg: "bg-sky-50",    dot: "bg-sky-500",    badge: "bg-sky-100 text-sky-700" },
-                  { border: "border-emerald-200",bg: "bg-emerald-50",dot: "bg-emerald-500",badge: "bg-emerald-100 text-emerald-700" },
-                  { border: "border-amber-200",  bg: "bg-amber-50",  dot: "bg-amber-500",  badge: "bg-amber-100 text-amber-700" },
+                  { headerBg: "bg-violet-600", badge: "bg-violet-100 text-violet-700", ring: "ring-violet-200" },
+                  { headerBg: "bg-sky-600",    badge: "bg-sky-100 text-sky-700",       ring: "ring-sky-200" },
+                  { headerBg: "bg-emerald-600",badge: "bg-emerald-100 text-emerald-700", ring: "ring-emerald-200" },
+                  { headerBg: "bg-amber-500",  badge: "bg-amber-100 text-amber-700",   ring: "ring-amber-200" },
+                  { headerBg: "bg-rose-600",   badge: "bg-rose-100 text-rose-700",     ring: "ring-rose-200" },
+                  { headerBg: "bg-indigo-600", badge: "bg-indigo-100 text-indigo-700", ring: "ring-indigo-200" },
                 ];
                 const a = accents[idx % accents.length];
+                const initials = course.title.split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
                 return (
                   <Link
                     key={course.course_id}
                     to={`/teacher/courses/${course.course_id}`}
-                    className={`block rounded-2xl border ${a.border} ${a.bg} p-5 shadow-sm transition hover:shadow-md`}
+                    className="group block rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-slate-300 transition-all overflow-hidden"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${a.dot}`} />
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 truncate">{course.title}</div>
-                        {course.description ? (
-                          <div className="mt-1 text-xs text-slate-500 line-clamp-2">{course.description}</div>
-                        ) : (
-                          <div className="mt-1 text-xs text-slate-400 italic">No description</div>
-                        )}
-                        <div className="mt-3">
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${a.badge}`}>
-                            {course.enrollments} {course.enrollments === 1 ? "student" : "students"}
-                          </span>
+                    {/* Colour header strip */}
+                    <div className={`${a.headerBg} px-5 pt-5 pb-10 relative`}>
+                      <div className="flex items-center justify-between">
+                        <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/20 text-white text-sm font-bold">
+                          {initials}
                         </div>
+                        <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                          {course.enrollments} {course.enrollments === 1 ? "student" : "students"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Card body — overlaps the header */}
+                    <div className="-mt-6 mx-4 mb-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                      <div className="font-semibold text-slate-900 leading-snug group-hover:text-violet-700 transition-colors">
+                        {course.title}
+                      </div>
+                      {course.description ? (
+                        <p className="mt-1 text-xs text-slate-500 line-clamp-2 leading-relaxed">{course.description}</p>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-400 italic">No description</p>
+                      )}
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${a.badge}`}>
+                          {course.enrollments} enrolled
+                        </span>
+                        <span className="text-xs font-medium text-slate-400 group-hover:text-violet-600 transition-colors">
+                          Manage →
+                        </span>
                       </div>
                     </div>
                   </Link>

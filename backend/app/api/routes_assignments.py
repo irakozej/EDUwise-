@@ -80,6 +80,22 @@ def create_assignment(
     db.refresh(a)
 
     log_action(db, user.id, "CREATE", "Assignment", str(a.id))
+
+    # Notify all enrolled students
+    enrolled_students = (
+        db.query(Enrollment)
+        .filter(Enrollment.course_id == course.id, Enrollment.status == "active")
+        .all()
+    )
+    for enroll in enrolled_students:
+        _push_notification(
+            db, enroll.student_id, "new_assignment",
+            f'New assignment in "{course.title}"',
+            f'"{a.title}" has been added. Due: {a.due_date.strftime("%b %d") if a.due_date else "no deadline"}.',
+            f"/student/courses/{course.id}",
+        )
+    db.commit()
+
     return a
 
 
@@ -154,6 +170,13 @@ def submit_assignment(
         db.commit()
         db.refresh(existing)
         log_action(db, user.id, "SUBMIT", "Assignment", str(assignment_id))
+        _push_notification(
+            db, recipient_id=course.teacher_id, type_="assignment_submitted",
+            title=f'{user.full_name} submitted "{a.title}"',
+            body=f'New submission for "{a.title}" in {course.title}.',
+            link=f"/teacher/assignments/{assignment_id}/grade",
+        )
+        db.commit()
         return existing
 
     sub = Submission(
@@ -171,10 +194,25 @@ def submit_assignment(
 
     log_action(db, user.id, "SUBMIT", "Assignment", str(assignment_id))
 
+    # Notify teacher
+    _push_notification(
+        db, recipient_id=course.teacher_id, type_="assignment_submitted",
+        title=f'{user.full_name} submitted "{a.title}"',
+        body=f'New submission for "{a.title}" in {course.title}.',
+        link=f"/teacher/assignments/{assignment_id}/grade",
+    )
+
     # Award XP for submitting
     from app.services.gamification import award_xp
     award_xp(db, user.id, "assignment_submit", sub.id)
     db.commit()
+
+    # Auto-update lesson progress
+    try:
+        from app.services.progress import auto_update_progress
+        auto_update_progress(db, user.id, a.lesson_id)
+    except Exception:
+        pass
 
     return sub
 

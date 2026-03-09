@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -309,6 +310,41 @@ def enroll(
     return {"status": "enrolled"}
 
 # ---------- Progress (Student) ----------
+@router.get("/courses/{course_id}/my-progress")
+def my_course_progress(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.student)),
+):
+    """Return per-lesson progress_pct for the current student in a course."""
+    enrolled = db.query(Enrollment).filter(
+        Enrollment.student_id == user.id,
+        Enrollment.course_id == course_id,
+        Enrollment.status == "active",
+    ).first()
+    if not enrolled:
+        raise HTTPException(403, "Not enrolled in this course")
+
+    lessons = (
+        db.query(Lesson)
+        .join(Module, Module.id == Lesson.module_id)
+        .filter(Module.course_id == course_id)
+        .all()
+    )
+    lesson_ids = [l.id for l in lessons]
+
+    rows = (
+        db.query(LessonProgress)
+        .filter(
+            LessonProgress.student_id == user.id,
+            LessonProgress.lesson_id.in_(lesson_ids),
+        )
+        .all()
+    ) if lesson_ids else []
+
+    return {row.lesson_id: row.progress_pct for row in rows}
+
+
 @router.put("/lessons/{lesson_id}/progress")
 def update_progress(
     lesson_id: int,
@@ -356,6 +392,53 @@ def update_progress(
         award_xp(db, user.id, "lesson_complete", lesson_id)
         db.commit()
 
+    return {"status": "ok", "progress_pct": row.progress_pct}
+
+
+# ---------- Teacher: override student progress ----------
+class TeacherProgressOverride(BaseModel):
+    progress_pct: int
+
+
+@router.patch("/lessons/{lesson_id}/students/{student_id}/progress")
+def teacher_override_progress(
+    lesson_id: int,
+    student_id: int,
+    payload: TeacherProgressOverride,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.teacher, UserRole.admin, UserRole.co_admin)),
+):
+    """Allow teacher/admin to override a student's lesson progress to any value."""
+    if payload.progress_pct < 0 or payload.progress_pct > 100:
+        raise HTTPException(400, "progress_pct must be 0..100")
+
+    lesson = db.get(Lesson, lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+
+    # Verify teacher owns the course
+    module = db.get(Module, lesson.module_id)
+    if not module:
+        raise HTTPException(500, "Module not found")
+    course = db.get(Course, module.course_id)
+    if not course:
+        raise HTTPException(500, "Course not found")
+    if user.role not in {UserRole.admin, UserRole.co_admin} and course.teacher_id != user.id:
+        raise HTTPException(403, "Not your course")
+
+    row = db.query(LessonProgress).filter(
+        LessonProgress.student_id == student_id,
+        LessonProgress.lesson_id == lesson_id,
+    ).first()
+
+    if not row:
+        row = LessonProgress(student_id=student_id, lesson_id=lesson_id, progress_pct=payload.progress_pct)
+        db.add(row)
+    else:
+        row.progress_pct = payload.progress_pct
+
+    db.commit()
+    log_action(db, user.id, "PROGRESS_OVERRIDE", "LessonProgress", f"{lesson_id}:{student_id}")
     return {"status": "ok", "progress_pct": row.progress_pct}
 
 
