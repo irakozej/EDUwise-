@@ -30,8 +30,15 @@ jobs:
             echo "--- Restarting backend ---"
             docker compose up -d backend
 
+            echo "--- Waiting for backend to be ready ---"
+            for i in $(seq 1 20); do
+              curl -sf http://localhost:8000/health && break
+              echo "  attempt $i failed, retrying in 3s..."
+              sleep 3
+            done
+            curl -sf http://localhost:8000/health || { echo "Backend did not come up"; exit 1; }
+
             echo "--- Running migrations ---"
-            sleep 3
             docker exec eduwise_backend alembic upgrade head
 
             echo "--- Health check ---"
