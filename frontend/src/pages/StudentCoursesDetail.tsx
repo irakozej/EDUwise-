@@ -703,7 +703,10 @@ export default function StudentCourseDetail() {
                                   )}
                                 </div>
                                 {aiResourcesLoading[lesson.id] ? (
-                                  <div className="text-[11px] text-indigo-500 py-2">Finding the best free resources for this lesson…</div>
+                                  <div className="flex items-center gap-2 py-3">
+                                    <div className="h-4 w-4 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
+                                    <span className="text-[11px] text-indigo-500">Finding the best free resources for this lesson…</span>
+                                  </div>
                                 ) : aiResourcesError[lesson.id] ? (
                                   <div className="text-[11px] text-rose-600 py-1">{aiResourcesError[lesson.id]}</div>
                                 ) : (aiResourcesByLesson[lesson.id] || []).length === 0 ? (

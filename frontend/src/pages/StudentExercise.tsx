@@ -160,9 +160,15 @@ export default function StudentExercise() {
         )}
 
         {loading && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 text-center">
-            <div className="text-slate-500 text-sm mb-1">Generating exercises…</div>
-            <div className="text-xs text-slate-400">AI is creating 10 questions based on this lesson</div>
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-10 flex flex-col items-center gap-4">
+            <div className="relative h-12 w-12">
+              <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
+              <div className="absolute inset-0 rounded-full border-4 border-violet-500 border-t-transparent animate-spin" />
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-semibold text-slate-800">Generating exercises…</div>
+              <div className="mt-1 text-xs text-slate-400">AI is creating 10 questions based on this lesson</div>
+            </div>
           </div>
         )}
 
