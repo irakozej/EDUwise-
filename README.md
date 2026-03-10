@@ -41,11 +41,12 @@ Log in as the Demo User(Student) Email: demo@gmail.com  Password: Cuddlug@1
 |---|---|
 | Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 3, React Router 7, Tiptap (rich editor), Axios |
 | Backend API | Python 3.11, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2, Alembic |
+| Real-time | FastAPI WebSockets (native), in-process connection manager |
 | Database | PostgreSQL 16 |
 | Cache / Queue | Redis 7 |
 | Object Storage | MinIO (S3-compatible) |
 | ML | scikit-learn 1.5, joblib, pandas, numpy |
-| AI | Anthropic Claude Haiku (via `anthropic` SDK) |
+| AI | Anthropic Claude Haiku (via `anthropic` SDK) — quiz generation, AI tutor chat, exercise generation |
 | Containerisation | Docker Compose |
 | Auth | JWT access tokens (30 min) + refresh tokens (14 days), bcrypt password hashing |
 | PDF generation | fpdf2 |
@@ -56,30 +57,36 @@ Log in as the Demo User(Student) Email: demo@gmail.com  Password: Cuddlug@1
 ## 2. Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Browser (React SPA)                                     │
-│  /student, /teacher, /admin, /profile, /forgot-password  │
-└───────────────────────┬──────────────────────────────────┘
-                        │ HTTPS / JSON   (port 5173 dev)
-                        ▼
-┌──────────────────────────────────────────────────────────┐
-│  FastAPI  — EduWise API v1.0  (port 8000)                │
-│  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │  Auth     │ │ Learning │ │  ML / AI  │ │ Gamifica- │  │
-│  │  routes   │ │  routes  │ │  routes   │ │  tion     │  │
-│  └───────────┘ └──────────┘ └──────────┘ └───────────┘  │
-│  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │
-│  │  Assign-  │ │  Notes / │ │  Peer    │ │  Admin    │  │
-│  │  ments    │ │  Discuss │ │  Review  │ │  routes   │  │
-│  └───────────┘ └──────────┘ └──────────┘ └───────────┘  │
-└───┬──────────────┬──────────────┬────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Browser (React SPA)                                         │
+│  /student, /teacher, /admin, /profile, /forgot-password      │
+└─────────────────┬──────────────────────┬─────────────────────┘
+                  │ HTTPS / JSON          │ WebSocket (wss://)
+                  │ (port 5173 dev)       │ /ws/notifications
+                  ▼                       │ /ws/quiz/{id}
+┌──────────────────────────────────────────────────────────────┐
+│  FastAPI  — EduWise API v1.0  (port 8000)                    │
+│  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐      │
+│  │  Auth     │ │ Learning │ │  ML / AI  │ │ Gamifica- │      │
+│  │  routes   │ │  routes  │ │  routes   │ │  tion     │      │
+│  └───────────┘ └──────────┘ └──────────┘ └───────────┘      │
+│  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐      │
+│  │  Assign-  │ │  Notes / │ │  Peer    │ │  Admin    │      │
+│  │  ments    │ │  Discuss │ │  Review  │ │  routes   │      │
+│  └───────────┘ └──────────┘ └──────────┘ └───────────┘      │
+│  ┌─────────────────────────────────────┐                     │
+│  │  WebSocket routes (routes_ws.py)    │                     │
+│  │  • /ws/notifications  (per-user)    │                     │
+│  │  • /ws/quiz/{id}      (live quiz)   │                     │
+│  └─────────────────────────────────────┘                     │
+└───┬──────────────┬──────────────┬────────────────────────────┘
     │              │              │
     ▼              ▼              ▼
 PostgreSQL 16   Redis 7       MinIO
 (port 5433)   (port 6379)  (port 9000/9001)
-                                  │
-                        Anthropic Claude API
-                        (external HTTPS)
+                                      │
+                            Anthropic Claude API
+                            (external HTTPS)
 ```
 
 ### Database Schema Overview
@@ -132,7 +139,8 @@ The schema is managed with **Alembic** migrations (applied in sequence):
 - Multiple-choice questions (A/B/C/D) with optional topic and difficulty tags
 - Optional per-quiz time limit — frontend countdown timer with auto-submit on expiry
 - Instant answer feedback after submission — correct answer highlighted green, selected wrong answer red
-- **AI question generation** — teacher clicks "✨ Generate with AI"; Claude Haiku returns 5 MCQ questions from lesson content; teacher can approve individually or bulk-add all
+- **AI question generation** — teacher clicks "Generate with AI"; Claude Haiku returns 5 MCQ questions from lesson content; teacher can approve individually or bulk-add all
+- **Live Quiz** — teacher can broadcast a quiz in real-time; students join a live session and answer questions as the teacher pushes them one by one; teacher sees a live answer tally per option; correct answer is revealed when the teacher closes responses (see §3.14)
 
 **Assignments**
 - Rich-text description + file attachment support (PDFs, images, Word docs via MinIO)
@@ -160,8 +168,14 @@ The schema is managed with **Alembic** migrations (applied in sequence):
 | **XP** | Earned on: lesson complete (+10), quiz pass (+25), quiz ace (+50), assignment submit (+15), assignment honor (+30), discussion post (+5), 7-day streak (+100), 30-day streak (+500) |
 | **Levels** | `level = min(10, 1 + total_xp ÷ 100)` — XP progress bar shown on dashboard |
 | **Badges** | 10 badges: First Step, Bookworm, Quiz Ace, Week Warrior, Month Master, Submitter, Honor Roll, Certified, Conversationalist, Fast Learner |
-| **Streaks** | Consecutive study days computed from lesson progress, quiz attempts, and assignment submissions — displayed with 🔥 on dashboard |
+| **Streaks** | Consecutive study days computed from lesson progress, quiz attempts, and assignment submissions — displayed on dashboard |
 | **Leaderboard** | Per-course top-10 students ranked by total XP, with current user highlighted |
+
+The **Achievements page** (`/student/achievements`) gives students a dedicated view with:
+- Color-coded XP level bar (sky → violet → amber as level increases)
+- Recent XP event log
+- Badge showcase — earned badges shown in full color, locked badges shown in greyscale with name hidden
+- Per-course leaderboard selector with gold/silver/bronze rank markers for top 3
 
 ### 3.7 Discussion Boards
 
@@ -177,9 +191,12 @@ The schema is managed with **Alembic** migrations (applied in sequence):
 
 ### 3.9 Real-Time Notifications
 
-- Event-driven notifications pushed to `notifications` table on key actions
-- `NotificationBell` component polls and shows unread count badge
-- Mark-all-read support
+- Event-driven notifications pushed to `notifications` table on key actions (assignment graded, new assignment, announcements, risk alert, direct message)
+- **WebSocket delivery** — `NotificationBell` opens a persistent WebSocket connection (`/ws/notifications?token=...`); new notifications are pushed instantly to the browser without polling
+- Live indicator dot on the bell icon shows connection status (green = connected, grey = reconnecting)
+- 5-second automatic reconnect on disconnect; 25-second ping keepalive to prevent idle timeouts
+- Initial unread count fetched via REST on mount; subsequent increments tracked via WebSocket events
+- Mark-all-read support; individual notification dismiss
 
 ### 3.10 Direct Messaging
 
@@ -202,7 +219,48 @@ The schema is managed with **Alembic** migrations (applied in sequence):
 
 - `/api/v1/courses/{id}/analytics` — enrollment count, lesson count, average progress, quiz stats, event breakdown
 - `GET /api/v1/courses/{id}/analytics/export` — CSV download with per-student progress and quiz data
-- Student history page — past quiz attempts and submission history in two tabs
+- Student history page (`/student/history`) — past quiz attempts and assignment submission history in two tabs
+
+### 3.14 Live Quiz (Real-Time)
+
+Live Quiz enables a teacher to run a synchronous quiz session where students answer questions in real time.
+
+**Teacher flow (`/teacher/quizzes/:quizId/live`):**
+- Opens a WebSocket session at `/ws/quiz/{quiz_id}`
+- Sees all quiz questions in a left panel; clicks one to broadcast it to all connected students
+- Right panel shows a live bar chart of answer distribution (A/B/C/D) updated as students submit
+- "Close Answers" button stops accepting responses and reveals the correct answer to students
+- "End Session" terminates the session for all participants
+
+**Student flow (`/student/quizzes/:quizId/live`):**
+- Joins the session over WebSocket; waits on a holding screen until the teacher pushes a question
+- Selects an answer; submission is locked after one choice per question
+- After the teacher closes answers, the correct option is highlighted green and the student's wrong answer (if any) is highlighted red
+- Session-ended state shown when the teacher ends the quiz
+
+**Implementation details:**
+- In-memory session state (`_live_sessions` dict in `routes_ws.py`) — resets on backend restart, which is acceptable for ephemeral live sessions
+- JWT authentication via query parameter (`?token=...`) since browser WebSocket API does not support custom headers
+- Teacher is identified by role check after token decode; students are tracked as a set of connected user IDs per session
+
+### 3.15 AI Tutor Chat
+
+Each lesson has an **AI Tutor** tab powered by Claude Haiku.
+
+- Students can ask any question about the lesson material in a chat interface
+- The lesson's rich-text content is injected as the system prompt, grounding responses in the actual course material
+- Conversation history (last 10 turns) is maintained client-side and sent with each request for contextual follow-up answers
+- Chat bubbles are styled by role: student messages on the right (sky), assistant replies on the left (slate)
+- Enter key submits; auto-scrolls to latest message
+- Backend endpoint: `POST /api/v1/lessons/{lesson_id}/ai-chat` — validates enrollment, builds prompt, calls `claude-haiku-4-5-20251001` with `max_tokens=600`
+
+### 3.16 AI Practice Exercises
+
+Students can generate AI-authored practice exercises for any lesson directly from the lesson's Quizzes tab.
+
+- `GET /api/v1/lessons/{lesson_id}/exercises` — Claude Haiku generates a set of short-answer and scenario-based questions tailored to the lesson content
+- Student answers inline; AI provides feedback per answer
+- Exercises are session-only (not persisted) — designed for low-stakes self-assessment
 
 ---
 
@@ -367,6 +425,8 @@ All foreign keys and high-cardinality query columns are indexed:
 | 10 | Certificate generation | **Achieved.** PDF certificate generated on-demand; gated on 100% course completion. |
 | 11 | Admin user management and audit trail | **Achieved.** Admin dashboard with user search, role filter, activate/deactivate, full audit log. |
 | 12 | File uploads for assignment submissions | **Achieved.** Files stored in MinIO S3-compatible object storage; presigned URLs returned. |
+| 13 | Real-time communication | **Achieved.** WebSocket notifications replace polling; Live Quiz broadcasts questions and tallies answers in real time across all connected students. |
+| 14 | AI Tutor per lesson | **Achieved.** Claude Haiku answers student questions grounded in lesson content with multi-turn conversation history. |
 
 ### 6.2 Where Objectives Were Fully Met
 
@@ -381,9 +441,9 @@ All foreign keys and high-cardinality query columns are indexed:
 | Area | Limitation | Reason / Mitigation |
 |---|---|---|
 | ML training data size | 395 rows in base dataset | Acceptable for a capstone prototype; production would merge live platform data continuously. The retrain job is already wired. |
-| Real-time notifications | Polling-based (30-second interval), not WebSocket | WebSocket requires additional infrastructure (Redis Pub/Sub) beyond capstone scope; polling is sufficient for demo scale. |
+| Live quiz session state | Stored in-memory; resets on backend restart | Acceptable for ephemeral sessions. Production could persist to Redis for resilience. |
 | Email delivery | SMTP optional; defaults to console log in dev | Requires an external SMTP server for production (e.g. SendGrid). Documented in config reference. |
-| AI cost | Each AI quiz generation call incurs Anthropic API cost | Gated behind `ANTHROPIC_API_KEY`; gracefully disabled if not set. |
+| AI cost | Each AI feature call (quiz generation, tutor chat, exercises) incurs Anthropic API cost | Gated behind `ANTHROPIC_API_KEY`; gracefully disabled if not set. |
 | Bundle size | 832 kB JS bundle | Tiptap editor is large; code-splitting would reduce initial load for production. |
 | No automated test suite | Manual functional tests described in Section 4 | Out of capstone scope; the API is fully explorable via FastAPI's auto-generated `/docs`. |
 
@@ -674,7 +734,12 @@ Browse to `http://localhost:8000/docs` for the interactive Swagger UI. All 100+ 
 | 7 | Student opens lesson → Notes tab | Rich editor loads; type a note; "Saving…" indicator appears and clears |
 | 8 | Student opens lesson → Discussion tab | Comment field visible; post a comment |
 | 9 | Student completes a lesson (progress 100%) | XP card increments by 10 on dashboard refresh |
-| 10 | Teacher opens quiz section → "✨ Generate with AI" | Questions appear (if API key set) or 503 message shown |
+| 10 | Teacher opens quiz section → "Generate with AI" | Questions appear (if API key set) or 503 message shown |
+| 11 | Teacher clicks "Go Live" on a quiz | Redirected to live quiz host view; WebSocket connected |
+| 12 | Student clicks "Join Live" on the same quiz | Live student view loads; question appears when teacher pushes it |
+| 13 | Student opens lesson → AI Tutor tab | Chat interface loads; ask a question and receive a context-aware reply |
+| 14 | Student visits `/student/achievements` | XP bar, badges, and leaderboard render without errors |
+| 15 | Notification bell icon | Green dot visible (WebSocket connected); badge increments on new events |
 
 ### 8.5 Verifying the ML Model Is Active
 
@@ -723,7 +788,9 @@ docker compose logs backend | grep "ML retraining scheduler"
 | Quizzes | `GET/POST /lessons/{id}/quizzes`, `PATCH/DELETE /quizzes/{id}`, `POST /quizzes/{id}/questions`, `POST /quiz-attempts/{id}/submit` |
 | Assignments | `GET/POST /lessons/{id}/assignments`, `POST /assignments/{id}/submit`, `PATCH /submissions/{id}/grade` |
 | Peer Review | `POST /assignments/{id}/peer-review/assign`, `GET /me/peer-reviews-pending`, `POST /peer-reviews/{id}/submit` |
-| AI | `POST /lessons/{id}/ai-generate-questions?count=5` |
+| AI | `POST /lessons/{id}/ai-generate-questions?count=5`, `POST /lessons/{id}/ai-chat` |
+| Exercises | `GET /lessons/{id}/exercises` |
+| WebSocket | `WS /ws/notifications?token=...`, `WS /ws/quiz/{quiz_id}?token=...` |
 | Notes | `GET/PUT /me/notes/{lesson_id}`, `GET /me/notes` |
 | Gamification | `GET /me/xp`, `GET /me/badges`, `GET /courses/{id}/leaderboard` |
 | Streak | `GET /me/streak` |

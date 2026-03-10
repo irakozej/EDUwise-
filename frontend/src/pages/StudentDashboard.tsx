@@ -200,6 +200,7 @@ export default function StudentDashboard() {
             </button>
             <NotificationBell />
             <button onClick={() => navigate("/student/history")} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">History</button>
+            <button onClick={() => navigate("/student/achievements")} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100">Achievements</button>
             <button onClick={() => navigate("/profile")} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Profile</button>
             <button onClick={loadAll} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Refresh</button>
             <button onClick={logout} className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Logout</button>

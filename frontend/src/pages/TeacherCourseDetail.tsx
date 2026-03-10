@@ -1167,6 +1167,13 @@ export default function TeacherCourseDetail() {
                                               {quiz.is_published ? "Unpublish" : "Publish"}
                                             </button>
                                             <button
+                                              onClick={() => navigate(`/teacher/quizzes/${quiz.id}/live`)}
+                                              className="text-xs text-violet-600 hover:text-violet-800 font-medium"
+                                              title="Start live quiz session"
+                                            >
+                                              Go Live
+                                            </button>
+                                            <button
                                               onClick={() => doDeleteQuiz(quiz.id, lesson.id)}
                                               className="text-xs text-rose-400 hover:text-rose-600 px-1 py-0.5 rounded hover:bg-rose-50"
                                               title="Delete quiz"

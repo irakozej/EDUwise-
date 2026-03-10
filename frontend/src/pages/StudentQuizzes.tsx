@@ -89,15 +89,24 @@ export default function StudentQuizzes() {
 
           {!loading &&
             quizzes.map((q) => (
-              <Link
-                key={q.id}
-                to={`/student/quizzes/${q.id}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md"
-              >
+              <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="text-sm font-semibold text-slate-900">{q.title}</div>
                 <div className="mt-1 text-sm text-slate-500">Quiz ID: {q.id} • Lesson ID: {q.lesson_id}</div>
-                <div className="mt-4 text-xs font-medium text-slate-500">Start quiz →</div>
-              </Link>
+                <div className="mt-4 flex items-center gap-3">
+                  <Link
+                    to={`/student/quizzes/${q.id}`}
+                    className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                  >
+                    Start quiz →
+                  </Link>
+                  <Link
+                    to={`/student/quizzes/${q.id}/live`}
+                    className="text-xs font-semibold text-violet-600 hover:text-violet-800 border border-violet-200 rounded-full px-3 py-1 hover:bg-violet-50"
+                  >
+                    Join Live
+                  </Link>
+                </div>
+              </div>
             ))}
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { getAccessToken } from "../lib/auth";
 
 type Notification = {
   id: number;
@@ -26,6 +27,7 @@ function typeColor(type: string): string {
   if (type === "announcement") return "bg-amber-100 text-amber-700";
   if (type === "new_assignment") return "bg-sky-100 text-sky-700";
   if (type === "direct_message") return "bg-violet-100 text-violet-700";
+  if (type === "risk_change") return "bg-rose-100 text-rose-700";
   return "bg-slate-100 text-slate-600";
 }
 
@@ -34,7 +36,15 @@ function typeLabel(type: string): string {
   if (type === "announcement") return "Announcement";
   if (type === "new_assignment") return "Assignment";
   if (type === "direct_message") return "Message";
+  if (type === "risk_change") return "Risk Alert";
   return type;
+}
+
+function wsUrl(): string {
+  const token = getAccessToken() ?? "";
+  const base = (import.meta.env.VITE_API_URL ?? window.location.origin)
+    .replace(/^http/, "ws");
+  return `${base}/ws/notifications?token=${encodeURIComponent(token)}`;
 }
 
 export default function NotificationBell() {
@@ -42,34 +52,84 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Close on outside click
+  // Close panel on outside click
   useEffect(() => {
     function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  // Poll unread count every 30s
+  // WebSocket connection for real-time notifications
   useEffect(() => {
-    fetchCount();
-    const id = setInterval(fetchCount, 30000);
-    return () => clearInterval(id);
-  }, []);
+    if (!getAccessToken()) return;
 
-  async function fetchCount() {
-    try {
-      const res = await api.get<{ count: number }>("/api/v1/me/notifications/unread-count");
-      setUnread(res.data.count);
-    } catch {
-      // silently ignore auth errors (e.g. logged out)
+    let ws: WebSocket;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let dead = false;
+
+    function connect() {
+      if (dead) return;
+      ws = new WebSocket(wsUrl());
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setWsConnected(true);
+        pingRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+        }, 25000);
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string);
+          if (msg.event === "notification") {
+            setUnread((n) => n + 1);
+            setNotifications((prev) => [
+              {
+                id: Date.now(),
+                type: msg.type,
+                title: msg.title,
+                body: msg.body ?? null,
+                link: msg.link ?? null,
+                is_read: false,
+                created_at: new Date().toISOString(),
+              },
+              ...prev,
+            ]);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (pingRef.current) clearInterval(pingRef.current);
+        if (!dead) reconnectTimer = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = () => ws.close();
     }
-  }
+
+    // Load initial unread count via REST
+    api.get<{ count: number }>("/api/v1/me/notifications/unread-count")
+      .then((r) => setUnread(r.data.count))
+      .catch(() => {});
+
+    connect();
+
+    return () => {
+      dead = true;
+      clearTimeout(reconnectTimer);
+      if (pingRef.current) clearInterval(pingRef.current);
+      wsRef.current?.close();
+    };
+  }, []);
 
   async function openPanel() {
     setOpen((v) => !v);
@@ -79,11 +139,8 @@ export default function NotificationBell() {
         const res = await api.get<Notification[]>("/api/v1/me/notifications?limit=20");
         setNotifications(res.data);
         setUnread(0);
-        // mark all read in background
         api.post("/api/v1/me/notifications/read-all").catch(() => {});
-      } catch {
-        // ignore
-      } finally {
+      } catch { /* ignore */ } finally {
         setLoading(false);
       }
     }
@@ -100,12 +157,14 @@ export default function NotificationBell() {
         onClick={openPanel}
         className="relative grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
         aria-label="Notifications"
+        title={wsConnected ? "Live notifications active" : "Connecting…"}
       >
-        {/* Bell icon */}
         <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
           <path strokeLinecap="round" strokeLinejoin="round"
             d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
+        {/* Live indicator dot */}
+        <span className={`absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full border border-white ${wsConnected ? "bg-emerald-400" : "bg-slate-300"}`} />
         {unread > 0 && (
           <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
             {unread > 99 ? "99+" : unread}
@@ -116,7 +175,12 @@ export default function NotificationBell() {
       {open && (
         <div className="absolute right-0 top-11 z-50 w-80 rounded-2xl border border-slate-200 bg-white shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <span className="text-sm font-semibold text-slate-900">Notifications</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-900">Notifications</span>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${wsConnected ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"}`}>
+                {wsConnected ? "Live" : "Offline"}
+              </span>
+            </div>
             {notifications.length > 0 && (
               <button
                 onClick={async () => {
@@ -134,9 +198,7 @@ export default function NotificationBell() {
             {loading ? (
               <div className="px-4 py-6 text-center text-sm text-slate-400">Loading…</div>
             ) : notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">
-                No notifications yet
-              </div>
+              <div className="px-4 py-8 text-center text-sm text-slate-400">No notifications yet</div>
             ) : (
               notifications.map((n) => (
                 <div

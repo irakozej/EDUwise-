@@ -28,6 +28,7 @@ from app.api.routes_notes import router as notes_router
 from app.api.routes_gamification import router as gamification_router
 from app.api.routes_peer_review import router as peer_review_router
 from app.api.routes_exercises import router as exercises_router
+from app.api.routes_ws import router as ws_router
 
 
 @asynccontextmanager
@@ -101,3 +102,4 @@ app.include_router(notes_router, prefix="/api/v1", tags=["notes"])
 app.include_router(gamification_router, prefix="/api/v1", tags=["gamification"])
 app.include_router(peer_review_router, prefix="/api/v1", tags=["peer-review"])
 app.include_router(exercises_router, prefix="/api/v1", tags=["exercises"])
+app.include_router(ws_router, tags=["websocket"])

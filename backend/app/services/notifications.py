@@ -1,4 +1,5 @@
 """Central helper for creating in-app notifications and sending email notifications."""
+import asyncio
 import threading
 
 from sqlalchemy.orm import Session
@@ -16,16 +17,34 @@ def push_notification(
     body: str | None = None,
     link: str | None = None,
 ) -> None:
-    """Insert a Notification row and send an email. Call db.commit() after."""
-    db.add(
-        Notification(
-            recipient_id=recipient_id,
-            type=type_,
-            title=title,
-            body=body,
-            link=link,
-        )
+    """Insert a Notification row, push via WebSocket, and send email. Call db.commit() after."""
+    notif = Notification(
+        recipient_id=recipient_id,
+        type=type_,
+        title=title,
+        body=body,
+        link=link,
     )
+    db.add(notif)
+
+    # Push real-time via WebSocket (fire-and-forget, non-blocking)
+    def _ws_push():
+        from app.services.ws_manager import ws_manager
+        payload = {
+            "event": "notification",
+            "type": type_,
+            "title": title,
+            "body": body,
+            "link": link,
+        }
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(ws_manager.send_to_user(recipient_id, payload))
+            loop.close()
+        except Exception:
+            pass
+
+    threading.Thread(target=_ws_push, daemon=True).start()
 
     # Send email in a background thread so it never blocks the request
     user = db.get(User, recipient_id)

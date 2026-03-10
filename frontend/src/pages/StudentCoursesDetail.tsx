@@ -118,8 +118,39 @@ export default function StudentCourseDetail() {
   const [submitError, setSubmitError] = useState<Record<number, string>>({});
 
   // Per-lesson active tab
-  type LessonTab = "overview" | "resources" | "quizzes" | "assignments" | "discussion" | "notes";
+  type LessonTab = "overview" | "resources" | "quizzes" | "assignments" | "discussion" | "notes" | "ai-tutor";
   const [lessonTab, setLessonTab] = useState<Record<number, LessonTab>>({});
+
+  // AI Tutor Chat state per lesson
+  type ChatMsg = { role: "user" | "assistant"; content: string };
+  const [chatHistory, setChatHistory] = useState<Record<number, ChatMsg[]>>({});
+  const [chatInput, setChatInput] = useState<Record<number, string>>({});
+  const [chatLoading, setChatLoading] = useState<Record<number, boolean>>({});
+  const chatBottomRef = useRef<Record<number, HTMLDivElement | null>>({});
+
+  async function sendChatMessage(lesson_id: number) {
+    const msg = (chatInput[lesson_id] || "").trim();
+    if (!msg) return;
+    const history = chatHistory[lesson_id] || [];
+    const newHistory: ChatMsg[] = [...history, { role: "user", content: msg }];
+    setChatHistory((p) => ({ ...p, [lesson_id]: newHistory }));
+    setChatInput((p) => ({ ...p, [lesson_id]: "" }));
+    setChatLoading((p) => ({ ...p, [lesson_id]: true }));
+    try {
+      const res = await api.post<{ reply: string }>(`/api/v1/lessons/${lesson_id}/ai-chat`, {
+        message: msg,
+        history: history.slice(-10),
+      });
+      setChatHistory((p) => ({ ...p, [lesson_id]: [...newHistory, { role: "assistant", content: res.data.reply }] }));
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      const errMsg = e?.response?.data?.detail || e?.message || "AI tutor unavailable";
+      setChatHistory((p) => ({ ...p, [lesson_id]: [...newHistory, { role: "assistant", content: `Error: ${errMsg}` }] }));
+    } finally {
+      setChatLoading((p) => ({ ...p, [lesson_id]: false }));
+      setTimeout(() => chatBottomRef.current[lesson_id]?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
+  }
 
   // Notes state per lesson
   const [notesByLesson, setNotesByLesson] = useState<Record<number, string>>({});
@@ -560,6 +591,7 @@ export default function StudentCourseDetail() {
                       { key: "assignments", label: "Assignments",  count: assignments.length },
                       { key: "discussion",  label: "Discussion" },
                       { key: "notes",       label: "Notes" },
+                      { key: "ai-tutor",    label: "AI Tutor" },
                     ];
 
                     return (
@@ -730,14 +762,23 @@ export default function StudentCourseDetail() {
                               ) : (
                                 <div className="space-y-2">
                                   {quizzes.map((quiz) => (
-                                    <Link
-                                      key={quiz.id}
-                                      to={`/student/quizzes/${quiz.id}`}
-                                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-sky-50 hover:border-sky-200 transition"
-                                    >
+                                    <div key={quiz.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                                       <div className="text-xs font-medium text-slate-900">{quiz.title}</div>
-                                      <span className="text-xs text-sky-600 font-medium shrink-0">Take quiz →</span>
-                                    </Link>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <Link
+                                          to={`/student/quizzes/${quiz.id}`}
+                                          className="text-xs text-sky-600 font-medium hover:text-sky-800"
+                                        >
+                                          Take quiz →
+                                        </Link>
+                                        <Link
+                                          to={`/student/quizzes/${quiz.id}/live`}
+                                          className="text-xs font-semibold text-violet-600 hover:text-violet-800 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50"
+                                        >
+                                          Live
+                                        </Link>
+                                      </div>
+                                    </div>
                                   ))}
                                 </div>
                               )}
@@ -935,6 +976,61 @@ export default function StudentCourseDetail() {
                                   </div>
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* ── AI Tutor ── */}
+                          {activeTab === "ai-tutor" && (
+                            <div className="flex flex-col gap-3">
+                              <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
+                                <p className="text-xs text-sky-700 font-medium">AI Tutor — ask anything about this lesson</p>
+                                <p className="text-[11px] text-sky-600 mt-0.5">Powered by Claude. Answers are based on the lesson content.</p>
+                              </div>
+
+                              {/* Chat messages */}
+                              <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                                {(chatHistory[lesson.id] || []).length === 0 && (
+                                  <p className="text-xs text-slate-400 text-center py-4">Ask a question to get started…</p>
+                                )}
+                                {(chatHistory[lesson.id] || []).map((msg, i) => (
+                                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                                    <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                                      msg.role === "user"
+                                        ? "bg-sky-600 text-white rounded-br-sm"
+                                        : "bg-slate-100 text-slate-800 rounded-bl-sm"
+                                    }`}>
+                                      {msg.content}
+                                    </div>
+                                  </div>
+                                ))}
+                                {chatLoading[lesson.id] && (
+                                  <div className="flex justify-start">
+                                    <div className="rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-xs text-slate-500">
+                                      Thinking…
+                                    </div>
+                                  </div>
+                                )}
+                                <div ref={(el) => { chatBottomRef.current[lesson.id] = el; }} />
+                              </div>
+
+                              {/* Input */}
+                              <div className="flex gap-2">
+                                <input
+                                  value={chatInput[lesson.id] || ""}
+                                  onChange={(e) => setChatInput((p) => ({ ...p, [lesson.id]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(lesson.id); } }}
+                                  placeholder="Ask the AI tutor a question…"
+                                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-sky-400"
+                                  disabled={chatLoading[lesson.id]}
+                                />
+                                <button
+                                  onClick={() => sendChatMessage(lesson.id)}
+                                  disabled={chatLoading[lesson.id] || !(chatInput[lesson.id] || "").trim()}
+                                  className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                                >
+                                  Ask
+                                </button>
+                              </div>
                             </div>
                           )}
 

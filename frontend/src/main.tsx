@@ -10,6 +10,7 @@ import StudentQuizzes from "./pages/StudentQuizzes";
 import StudentTakeQuiz from "./pages/StudentTakeQuiz";
 import StudentHistory from "./pages/StudentHistory";
 import StudentExercise from "./pages/StudentExercise";
+import StudentGamification from "./pages/StudentGamification";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TeacherCourseDetail from "./pages/TeacherCourseDetail";
 import TeacherStudentProgress from "./pages/TeacherStudentProgress";
@@ -18,6 +19,8 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ProfilePage from "./pages/ProfilePage";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import TeacherLiveQuiz from "./pages/TeacherLiveQuiz";
+import StudentLiveQuiz from "./pages/StudentLiveQuiz";
 
 export function App() {
   return (
@@ -32,6 +35,7 @@ export function App() {
         <Route path="/student/quizzes" element={<StudentQuizzes />} />
         <Route path="/student/quizzes/:quizId" element={<StudentTakeQuiz />} />
         <Route path="/student/history" element={<StudentHistory />} />
+        <Route path="/student/achievements" element={<StudentGamification />} />
         <Route path="/student/lessons/:lessonId/exercises" element={<StudentExercise />} />
 
         {/* Teacher routes */}
@@ -39,6 +43,8 @@ export function App() {
         <Route path="/teacher/courses/:courseId" element={<TeacherCourseDetail />} />
         <Route path="/teacher/courses/:courseId/students/:studentId" element={<TeacherStudentProgress />} />
         <Route path="/teacher/assignments/:assignmentId/grade" element={<TeacherAssignmentGrading />} />
+        <Route path="/teacher/quizzes/:quizId/live" element={<TeacherLiveQuiz />} />
+        <Route path="/student/quizzes/:quizId/live" element={<StudentLiveQuiz />} />
 
         {/* Admin routes */}
         <Route path="/admin" element={<AdminDashboard />} />

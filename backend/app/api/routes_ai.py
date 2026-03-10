@@ -4,6 +4,7 @@ import re
 
 from anthropic import Anthropic
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
@@ -268,3 +269,79 @@ def ai_study_suggestions(
     valid_suggestions = [s for s in suggestions if isinstance(s, dict) and required.issubset(s.keys())]
 
     return {"suggestions": valid_suggestions[:6]}
+
+
+# ── AI Tutor Chat ─────────────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+
+
+@router.post("/lessons/{lesson_id}/ai-chat")
+def ai_tutor_chat(
+    lesson_id: int,
+    payload: ChatRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """AI Tutor: answer student questions in the context of a lesson."""
+    lesson = db.get(Lesson, lesson_id)
+    if not lesson:
+        raise HTTPException(404, "Lesson not found")
+
+    module = db.get(Module, lesson.module_id)
+    if not module:
+        raise HTTPException(500, "Module not found")
+
+    # Students must be enrolled
+    if user.role == UserRole.student:
+        enrolled = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.student_id == user.id,
+                Enrollment.course_id == module.course_id,
+                Enrollment.status == "active",
+            )
+            .first()
+        )
+        if not enrolled:
+            raise HTTPException(403, "You are not enrolled in this course")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(503, "AI service not configured — set ANTHROPIC_API_KEY")
+
+    plain_content = re.sub(r"<[^>]+>", "", (lesson.content or "")).strip()
+
+    system_prompt = (
+        f"You are an expert tutor helping a student understand the lesson titled \"{lesson.title}\". "
+        "Answer questions clearly and concisely based on the lesson content below. "
+        "If the question is unrelated to the lesson, gently redirect the student back to the topic. "
+        "Keep responses focused and educational — under 200 words unless a detailed explanation is necessary.\n\n"
+        f"Lesson content:\n{plain_content[:3000]}"
+    )
+
+    messages = [
+        {"role": msg.role, "content": msg.content}
+        for msg in payload.history[-10:]  # keep last 10 turns for context
+    ]
+    messages.append({"role": "user", "content": payload.message})
+
+    try:
+        response = Anthropic(api_key=api_key).messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            system=system_prompt,
+            messages=messages,
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"AI service error: {exc}")
+
+    reply = response.content[0].text.strip()
+    return {"reply": reply, "lesson_id": lesson_id}
