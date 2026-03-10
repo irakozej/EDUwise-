@@ -105,13 +105,6 @@ export default function TeacherLiveQuiz() {
   }
 
   const current = questions[currentIdx];
-  const optionColors: Record<string, string> = {
-    A: "bg-sky-100 text-sky-800 border-sky-200",
-    B: "bg-violet-100 text-violet-800 border-violet-200",
-    C: "bg-amber-100 text-amber-800 border-amber-200",
-    D: "bg-rose-100 text-rose-800 border-rose-200",
-  };
-
   // Count answers per option
   const tally: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   Object.values(answers).forEach((opt) => { if (opt in tally) tally[opt]++; });

@@ -357,18 +357,6 @@ export default function StudentCourseDetail() {
     })();
   }, [token, course_id]);
 
-  async function setProgress(lesson_id: number, pct: number) {
-    const clamped = Math.max(0, Math.min(100, pct));
-    try {
-      await api.put(`/api/v1/lessons/${lesson_id}/progress`, { progress_pct: clamped });
-      setProgressByLesson((prev) => ({ ...prev, [lesson_id]: clamped }));
-      trackEvent("lesson_progress", lesson_id);
-      if (clamped >= 100) trackEvent("lesson_complete", lesson_id);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
-      alert(e?.response?.data?.detail || e?.message || "Failed to update progress");
-    }
-  }
 
   async function submitAssignment(assignment_id: number) {
     const text = submitText[assignment_id] || "";
