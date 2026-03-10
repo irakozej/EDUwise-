@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearAccessToken, getAccessToken } from "../lib/auth";
 import NotificationBell from "../components/NotificationBell";
+import PageLoader from "../components/PageLoader";
 
 type QuizAttempt = {
   attempt_id: number;
@@ -180,7 +181,7 @@ export default function StudentHistory() {
         </div>
 
         {loading && (
-          <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Loading…</div>
+          <PageLoader />
         )}
         {error && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">{error}</div>

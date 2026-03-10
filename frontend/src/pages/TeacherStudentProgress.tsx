@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import TeacherPageNav from "../components/TeacherPageNav";
+import PageLoader from "../components/PageLoader";
 
 type LessonProgress = {
   lesson_id: number;
@@ -77,9 +78,7 @@ export default function TeacherStudentProgress() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-sm text-slate-500">Loading student progress…</div>
-      </div>
+      <PageLoader fullPage text="Loading student progress…" />
     );
   }
 

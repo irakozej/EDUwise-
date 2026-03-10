@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import FileUpload from "../components/FileUpload";
 import NotificationBell from "../components/NotificationBell";
+import PageLoader from "../components/PageLoader";
 
 type ProfileData = {
   id: number;
@@ -132,9 +133,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-sm text-slate-500">Loading profile…</div>
-      </div>
+      <PageLoader fullPage text="Loading profile…" />
     );
   }
 

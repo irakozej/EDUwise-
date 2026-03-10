@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import StudentPageNav from "../components/StudentPageNav";
+import PageLoader from "../components/PageLoader";
 
 type Course = { id: number; title: string; teacher_id: number };
 type Module = { id: number; course_id: number; title: string; order_index: number };
@@ -78,7 +79,7 @@ export default function StudentQuizzes() {
 
         <div className="mt-6 space-y-3">
           {loading && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-600">Loading…</div>
+            <PageLoader />
           )}
 
           {!loading && quizzes.length === 0 && (

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import StudentPageNav from "../components/StudentPageNav";
+import PageLoader from "../components/PageLoader";
 
 type QuestionOut = {
   id: number;
@@ -188,7 +189,7 @@ export default function StudentTakeQuiz() {
         )}
 
         {loading ? (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 text-slate-600">Loading…</div>
+          <PageLoader />
         ) : (
           <div className="mt-6 space-y-4">
             {/* Score summary */}

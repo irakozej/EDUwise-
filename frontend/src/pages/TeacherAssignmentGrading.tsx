@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import TeacherPageNav from "../components/TeacherPageNav";
+import PageLoader from "../components/PageLoader";
 
 type Assignment = {
   id: number;
@@ -160,7 +161,7 @@ export default function TeacherAssignmentGrading() {
         )}
 
         {loading ? (
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-500">Loading…</div>
+          <PageLoader />
         ) : submissions.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
             <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">

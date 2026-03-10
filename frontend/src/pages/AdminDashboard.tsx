@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { clearAccessToken, getAccessToken } from "../lib/auth";
 import NotificationBell from "../components/NotificationBell";
+import PageLoader from "../components/PageLoader";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -404,7 +405,7 @@ export default function AdminDashboard() {
         {tab === "overview" && (
           <div className="space-y-6">
             {loadingInit ? (
-              <div className="text-sm text-slate-500">Loading…</div>
+              <PageLoader />
             ) : stats ? (
               <>
                 <section>
@@ -569,7 +570,7 @@ export default function AdminDashboard() {
             </div>
 
             {loadingUsers ? (
-              <div className="text-sm text-slate-500">Loading…</div>
+              <PageLoader />
             ) : filteredUsers.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
                 No users found.
@@ -673,7 +674,7 @@ export default function AdminDashboard() {
             </div>
 
             {loadingCourses ? (
-              <div className="text-sm text-slate-500">Loading…</div>
+              <PageLoader />
             ) : filteredCourses.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
                 No courses found.
@@ -723,12 +724,12 @@ export default function AdminDashboard() {
                 disabled={loadingActivity}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
-                {loadingActivity ? "Loading…" : "Refresh"}
+                {loadingActivity ? "Refreshing…" : "Refresh"}
               </button>
             </div>
 
             {loadingActivity ? (
-              <div className="text-sm text-slate-500">Loading…</div>
+              <PageLoader />
             ) : activity.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
                 No activity recorded yet.
