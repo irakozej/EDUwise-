@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/auth";
 import StudentPageNav from "../components/StudentPageNav";
+import PageLoader from "../components/PageLoader";
 
 type EnrolledCourse = {
   course_id: number;
@@ -95,13 +96,7 @@ export default function StudentCourses() {
           <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
         )}
 
-        {loading && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-44 rounded-2xl border border-slate-200 bg-white animate-pulse" />
-            ))}
-          </div>
-        )}
+        {loading && <PageLoader text="Loading your courses…" />}
 
         {!loading && courses.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">

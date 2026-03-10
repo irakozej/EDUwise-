@@ -5,6 +5,7 @@ import { getAccessToken } from "../lib/auth";
 import RichEditor from "../components/RichEditor";
 import FileUpload from "../components/FileUpload";
 import NotificationBell from "../components/NotificationBell";
+import PageLoader from "../components/PageLoader";
 
 function resourceUrl(platform: string, searchQuery: string): string {
   const q = encodeURIComponent(searchQuery);
@@ -536,9 +537,7 @@ export default function StudentCourseDetail() {
         )}
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2].map((i) => <div key={i} className="h-32 rounded-2xl border border-slate-200 bg-white animate-pulse" />)}
-          </div>
+          <PageLoader text="Loading course content…" />
         ) : modules.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <div className="mx-auto mb-3 h-12 w-12 rounded-2xl bg-slate-100 flex items-center justify-center">
