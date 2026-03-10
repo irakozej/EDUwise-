@@ -1,0 +1,40 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH deploy to droplet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_IP }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.APP_DIR }}
+
+            echo "--- Pulling latest code ---"
+            git checkout -- .
+            git pull origin main
+
+            echo "--- Rebuilding backend ---"
+            docker compose build backend
+
+            echo "--- Restarting backend ---"
+            docker compose up -d backend
+
+            echo "--- Running migrations ---"
+            sleep 3
+            docker exec eduwise_backend alembic upgrade head
+
+            echo "--- Health check ---"
+            curl -sf http://localhost:8000/health || exit 1
+
+            echo "--- Deploy complete ---"
