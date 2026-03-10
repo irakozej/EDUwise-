@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { clearAccessToken, getAccessToken } from "../lib/auth";
 import NotificationBell from "../components/NotificationBell";
 import MessagesPanel from "../components/MessagesPanel";
+import PageLoader from "../components/PageLoader";
 
 type DashboardData = {
   student: { id: number; full_name: string; email: string };
@@ -310,7 +311,7 @@ export default function StudentDashboard() {
         {/* People tab */}
         {activeTab === "people" && (
           <div className="mt-6 space-y-5">
-            {loading && <div className="text-sm text-slate-400">Loading…</div>}
+            {loading && <PageLoader />}
             {!loading && people.length === 0 && (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
                 No courses found. Enroll in a course to see people.
@@ -453,7 +454,7 @@ export default function StudentDashboard() {
             <h2 className="text-base font-semibold text-slate-900 mb-1">Activity</h2>
             <p className="text-xs text-slate-500 mb-4">Your learning totals</p>
 
-            {loading && <div className="text-sm text-slate-400">Loading…</div>}
+            {loading && <PageLoader />}
             {!loading && dashboard && (
               <div className="space-y-2">
                 {Object.entries(dashboard.events.by_type || {}).map(([k, v]) => (
