@@ -13,7 +13,10 @@ type LiveQuestion = {
 
 function wsUrl(quizId: string): string {
   const token = getAccessToken() ?? "";
-  const base = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/^http/, "ws");
+  const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
+  let origin: string;
+  try { origin = new URL(apiUrl).origin; } catch { origin = window.location.origin; }
+  const base = origin.replace(/^http/, "ws");
   return `${base}/ws/quiz/${quizId}?token=${encodeURIComponent(token)}`;
 }
 

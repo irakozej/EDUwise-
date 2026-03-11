@@ -17,7 +17,11 @@ type QuizInfo = { id: number; title: string };
 
 function wsUrl(quizId: string): string {
   const token = getAccessToken() ?? "";
-  const base = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/^http/, "ws");
+  // Strip any path (e.g. /api/v1) from VITE_API_URL — WS endpoint lives at root /ws/quiz/...
+  const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
+  let origin: string;
+  try { origin = new URL(apiUrl).origin; } catch { origin = window.location.origin; }
+  const base = origin.replace(/^http/, "ws");
   return `${base}/ws/quiz/${quizId}?token=${encodeURIComponent(token)}`;
 }
 
