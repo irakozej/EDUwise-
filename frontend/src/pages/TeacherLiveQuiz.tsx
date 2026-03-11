@@ -33,6 +33,7 @@ export default function TeacherLiveQuiz() {
   const [responded, setResponded] = useState(0);
   const [accepting, setAccepting] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [sessionStarted, setSessionStarted] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [timeLimitSecs, setTimeLimitSecs] = useState(30);
   const [timeLimitActive, setTimeLimitActive] = useState(false);
@@ -188,41 +189,72 @@ export default function TeacherLiveQuiz() {
               Back to course
             </button>
           </div>
+        ) : !sessionStarted ? (
+          /* ── Lobby ── */
+          <div className="max-w-md mx-auto mt-16 space-y-6 text-center">
+            <div>
+              <div className="text-2xl font-bold">{quiz?.title ?? "Live Quiz"}</div>
+              <p className="text-slate-400 text-sm mt-1">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
+            </div>
+
+            {/* Participant counter */}
+            <div className="rounded-2xl bg-white/5 border border-white/10 px-8 py-6">
+              <div className="text-5xl font-black text-violet-300">{participants}</div>
+              <div className="text-sm text-slate-400 mt-1">student{participants !== 1 ? "s" : ""} joined</div>
+              <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Waiting for students to join…
+              </div>
+            </div>
+
+            {/* Time limit setup */}
+            <div className="rounded-2xl bg-white/5 border border-white/10 p-4 text-left space-y-3">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Time per question</div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={timeLimitActive}
+                  onChange={(e) => setTimeLimitActive(e.target.checked)}
+                  className="rounded"
+                />
+                <span className="text-xs text-slate-300">Enable countdown timer</span>
+              </label>
+              {timeLimitActive && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={timeLimitSecs}
+                    onChange={(e) => setTimeLimitSecs(Number(e.target.value))}
+                    className="w-20 rounded-lg bg-white/10 border border-white/20 px-2 py-1 text-sm text-white text-center"
+                  />
+                  <span className="text-xs text-slate-400">seconds per question</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => { applyTimeLimit(); setSessionStarted(true); }}
+              disabled={!connected || questions.length === 0}
+              className="w-full rounded-2xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-6 py-4 text-base font-bold transition"
+            >
+              Start Quiz
+            </button>
+            {questions.length === 0 && (
+              <p className="text-xs text-rose-400">This quiz has no questions yet.</p>
+            )}
+          </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Left column: time limit + question list */}
             <div className="lg:col-span-1 space-y-4">
-              {/* Time limit control */}
-              <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-3">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Time per question</div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={timeLimitActive}
-                    onChange={(e) => setTimeLimitActive(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-xs text-slate-300">Enable countdown</span>
-                </label>
-                {timeLimitActive && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={5}
-                      max={300}
-                      value={timeLimitSecs}
-                      onChange={(e) => setTimeLimitSecs(Number(e.target.value))}
-                      className="w-20 rounded-lg bg-white/10 border border-white/20 px-2 py-1 text-sm text-white text-center"
-                    />
-                    <span className="text-xs text-slate-400">seconds</span>
-                  </div>
-                )}
-                <button
-                  onClick={applyTimeLimit}
-                  className="w-full rounded-lg bg-violet-600/50 hover:bg-violet-600 px-3 py-1.5 text-xs font-semibold transition"
-                >
-                  Apply
-                </button>
+              {/* Compact timer indicator */}
+              <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-slate-400">Timer</span>
+                <span className="text-xs font-semibold text-slate-300">
+                  {timeLimitActive ? `${timeLimitSecs}s per question` : "No limit"}
+                </span>
               </div>
 
               {/* Question list */}
