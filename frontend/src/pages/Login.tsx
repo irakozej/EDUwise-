@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { setAccessToken } from "../lib/auth";
+import { setAccessToken, setRefreshToken } from "../lib/auth";
 
 type LoginResponse = {
   access_token: string;
@@ -34,6 +34,9 @@ export default function Login() {
       });
       if (!res.data?.access_token) throw new Error("No token returned.");
       setAccessToken(res.data.access_token);
+      if ((res.data as { refresh_token?: string }).refresh_token) {
+        setRefreshToken((res.data as { refresh_token?: string }).refresh_token!);
+      }
 
       let role = "student";
       try {
