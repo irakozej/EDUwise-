@@ -36,7 +36,7 @@ type Resource = {
   difficulty?: string | null;
   format?: string | null;
 };
-type Quiz = { id: number; lesson_id: number; title: string; is_published: boolean };
+type Quiz = { id: number; lesson_id: number; title: string; is_published: boolean; quiz_type: string; deadline: string | null };
 type Announcement = {
   id: number;
   title: string;
@@ -753,20 +753,33 @@ export default function StudentCourseDetail() {
                                 <div className="space-y-2">
                                   {quizzes.map((quiz) => (
                                     <div key={quiz.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                      <div className="text-xs font-medium text-slate-900">{quiz.title}</div>
+                                      <div>
+                                        <div className="text-xs font-medium text-slate-900">{quiz.title}</div>
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          <span className={`rounded-full px-1.5 text-[10px] font-semibold ${quiz.quiz_type === "live" ? "bg-violet-100 text-violet-700" : "bg-sky-50 text-sky-700"}`}>
+                                            {quiz.quiz_type === "live" ? "Live" : "Self-paced"}
+                                          </span>
+                                          {quiz.deadline && quiz.quiz_type !== "live" && (
+                                            <span className="text-[10px] text-slate-400">Due {new Date(quiz.deadline).toLocaleDateString()}</span>
+                                          )}
+                                        </div>
+                                      </div>
                                       <div className="flex items-center gap-2 shrink-0">
-                                        <Link
-                                          to={`/student/quizzes/${quiz.id}`}
-                                          className="text-xs text-sky-600 font-medium hover:text-sky-800"
-                                        >
-                                          Take quiz →
-                                        </Link>
-                                        <Link
-                                          to={`/student/quizzes/${quiz.id}/live`}
-                                          className="text-xs font-semibold text-violet-600 hover:text-violet-800 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50"
-                                        >
-                                          Live
-                                        </Link>
+                                        {quiz.quiz_type !== "live" ? (
+                                          <Link
+                                            to={`/student/quizzes/${quiz.id}`}
+                                            className="text-xs text-sky-600 font-medium hover:text-sky-800"
+                                          >
+                                            Take quiz →
+                                          </Link>
+                                        ) : (
+                                          <Link
+                                            to={`/student/quizzes/${quiz.id}/live`}
+                                            className="text-xs font-semibold text-violet-600 hover:text-violet-800 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-50"
+                                          >
+                                            Join Live →
+                                          </Link>
+                                        )}
                                       </div>
                                     </div>
                                   ))}

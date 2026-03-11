@@ -13,7 +13,7 @@ type Course = { id: number; title: string; description: string | null; teacher_i
 type Module = { id: number; course_id: number; title: string; order_index: number };
 type Lesson = { id: number; module_id: number; title: string; content: string | null; order_index: number };
 type Resource = { id: number; lesson_id: number; title: string; resource_type: string; url: string | null; topic: string | null; difficulty: string | null; format: string | null };
-type Quiz = { id: number; lesson_id: number; title: string; is_published: boolean };
+type Quiz = { id: number; lesson_id: number; title: string; is_published: boolean; quiz_type: string; deadline: string | null };
 type Assignment = { id: number; lesson_id: number; title: string; description: string | null; due_date: string | null; max_score: number; peer_review_enabled: boolean; num_reviewers: number };
 type AiQuestion = { question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_option: string };
 type Question = { id: number; quiz_id: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_option: string; topic: string | null; difficulty: string | null };
@@ -162,6 +162,8 @@ export default function TeacherCourseDetail() {
   // Add quiz form (per lesson)
   const [addQuizForLesson, setAddQuizForLesson] = useState<number | null>(null);
   const [newQuizTitle, setNewQuizTitle] = useState("");
+  const [newQuizType, setNewQuizType] = useState<"self_paced" | "live">("self_paced");
+  const [newQuizDeadline, setNewQuizDeadline] = useState("");
   const [savingQuiz, setSavingQuiz] = useState(false);
   const [quizError, setQuizError] = useState("");
 
@@ -465,11 +467,16 @@ export default function TeacherCourseDetail() {
     if (!newQuizTitle.trim()) return;
     setSavingQuiz(true); setQuizError("");
     try {
-      await api.post("/api/v1/quizzes", { lesson_id: lessonId, title: newQuizTitle.trim() });
-      setNewQuizTitle(""); setAddQuizForLesson(null);
+      await api.post("/api/v1/quizzes", {
+        lesson_id: lessonId,
+        title: newQuizTitle.trim(),
+        quiz_type: newQuizType,
+        deadline: newQuizType === "self_paced" && newQuizDeadline ? new Date(newQuizDeadline).toISOString() : null,
+      });
+      setNewQuizTitle(""); setNewQuizType("self_paced"); setNewQuizDeadline(""); setAddQuizForLesson(null);
       await loadQuizzesForLesson(lessonId);
-        } catch (err: unknown) {
-          const e = err as { response?: { data?: { detail?: string } }; message?: string };
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setQuizError(e?.response?.data?.detail || "Failed to add quiz");
     } finally { setSavingQuiz(false); }
   }
@@ -1154,7 +1161,17 @@ export default function TeacherCourseDetail() {
                                             className="flex items-center gap-2 text-left flex-1 min-w-0"
                                           >
                                             <span className="text-slate-400 text-xs">{expandedQuizzes.has(quiz.id) ? "▾" : "▸"}</span>
-                                            <span className="text-xs font-medium text-slate-800 truncate">{quiz.title}</span>
+                                            <div className="flex flex-col min-w-0">
+                                              <span className="text-xs font-medium text-slate-800 truncate">{quiz.title}</span>
+                                              <div className="flex items-center gap-1.5 mt-0.5">
+                                                <span className={`rounded-full px-1.5 py-0 text-[10px] font-semibold ${quiz.quiz_type === "live" ? "bg-violet-100 text-violet-700" : "bg-sky-50 text-sky-700"}`}>
+                                                  {quiz.quiz_type === "live" ? "Live" : "Self-paced"}
+                                                </span>
+                                                {quiz.deadline && quiz.quiz_type !== "live" && (
+                                                  <span className="text-[10px] text-slate-400">Due {new Date(quiz.deadline).toLocaleDateString()}</span>
+                                                )}
+                                              </div>
+                                            </div>
                                           </button>
                                           <div className="flex items-center gap-2 shrink-0">
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${quiz.is_published ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
@@ -1166,13 +1183,15 @@ export default function TeacherCourseDetail() {
                                             >
                                               {quiz.is_published ? "Unpublish" : "Publish"}
                                             </button>
-                                            <button
-                                              onClick={() => navigate(`/teacher/quizzes/${quiz.id}/live`)}
-                                              className="text-xs text-violet-600 hover:text-violet-800 font-medium"
-                                              title="Start live quiz session"
-                                            >
-                                              Go Live
-                                            </button>
+                                            {quiz.quiz_type === "live" && (
+                                              <button
+                                                onClick={() => navigate(`/teacher/quizzes/${quiz.id}/live`)}
+                                                className="text-xs text-violet-600 hover:text-violet-800 font-medium"
+                                                title="Start live quiz session"
+                                              >
+                                                Go Live
+                                              </button>
+                                            )}
                                             <button
                                               onClick={() => doDeleteQuiz(quiz.id, lesson.id)}
                                               className="text-xs text-rose-400 hover:text-rose-600 px-1 py-0.5 rounded hover:bg-rose-50"
@@ -1334,15 +1353,61 @@ export default function TeacherCourseDetail() {
                                 )}
 
                                 {addQuizForLesson === lesson.id && (
-                                  <div className="mt-2">
-                                    <InlineForm
-                                      fields={[{ label: "Quiz title *", value: newQuizTitle, onChange: setNewQuizTitle, placeholder: "e.g. Chapter 1 Quiz" }]}
-                                      onSubmit={() => addQuiz(lesson.id)}
-                                      onCancel={() => { setAddQuizForLesson(null); setQuizError(""); }}
-                                      submitLabel="Add Quiz"
-                                      loading={savingQuiz}
-                                      error={quizError}
-                                    />
+                                  <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-600 block mb-1">Quiz title *</label>
+                                      <input
+                                        value={newQuizTitle}
+                                        onChange={(e) => setNewQuizTitle(e.target.value)}
+                                        placeholder="e.g. Chapter 1 Quiz"
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-violet-300"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-600 block mb-1">Quiz type</label>
+                                      <div className="flex gap-3">
+                                        {(["self_paced", "live"] as const).map((t) => (
+                                          <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+                                            <input
+                                              type="radio"
+                                              name={`quiz-type-${lesson.id}`}
+                                              value={t}
+                                              checked={newQuizType === t}
+                                              onChange={() => setNewQuizType(t)}
+                                              className="accent-violet-600"
+                                            />
+                                            <span className="text-xs text-slate-700">{t === "self_paced" ? "Self-paced" : "Live (real-time)"}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {newQuizType === "self_paced" && (
+                                      <div>
+                                        <label className="text-xs font-semibold text-slate-600 block mb-1">Deadline (optional)</label>
+                                        <input
+                                          type="datetime-local"
+                                          value={newQuizDeadline}
+                                          onChange={(e) => setNewQuizDeadline(e.target.value)}
+                                          className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-violet-300"
+                                        />
+                                      </div>
+                                    )}
+                                    {quizError && <p className="text-xs text-rose-500">{quizError}</p>}
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => addQuiz(lesson.id)}
+                                        disabled={savingQuiz || !newQuizTitle.trim()}
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                                      >
+                                        {savingQuiz ? "Saving…" : "Add Quiz"}
+                                      </button>
+                                      <button
+                                        onClick={() => { setAddQuizForLesson(null); setQuizError(""); }}
+                                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                               </div>
