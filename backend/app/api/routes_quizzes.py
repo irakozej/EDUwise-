@@ -26,6 +26,18 @@ def _get_lesson(db: Session, lesson_id: int) -> Lesson | None:
     return db.get(Lesson, lesson_id)
 
 
+def _quiz_out(quiz: Quiz) -> QuizOut:
+    return QuizOut(
+        id=quiz.id,
+        lesson_id=quiz.lesson_id,
+        title=quiz.title,
+        is_published=quiz.is_published,
+        time_limit_minutes=quiz.time_limit_minutes,
+        quiz_type=quiz.quiz_type or "self_paced",
+        deadline=quiz.deadline.isoformat() if quiz.deadline else None,
+    )
+
+
 def _get_course_id_for_lesson(db: Session, lesson_id: int) -> int:
     lesson = db.get(Lesson, lesson_id)
     if not lesson:
@@ -49,7 +61,22 @@ def create_quiz(
     if not lesson:
         raise HTTPException(404, "Lesson not found")
 
-    quiz = Quiz(lesson_id=payload.lesson_id, title=payload.title, is_published=False, time_limit_minutes=payload.time_limit_minutes)
+    # Parse deadline
+    deadline_dt = None
+    if payload.deadline:
+        try:
+            deadline_dt = datetime.fromisoformat(payload.deadline.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "Invalid deadline format — use ISO 8601")
+
+    quiz = Quiz(
+        lesson_id=payload.lesson_id,
+        title=payload.title,
+        is_published=False,
+        time_limit_minutes=payload.time_limit_minutes,
+        quiz_type=payload.quiz_type or "self_paced",
+        deadline=deadline_dt,
+    )
     db.add(quiz)
     db.commit()
     db.refresh(quiz)
@@ -64,16 +91,20 @@ def create_quiz(
         .filter(Enrollment.course_id == course_id, Enrollment.status == "active")
         .all()
     )
+    deadline_str = deadline_dt.strftime("%b %d, %Y at %H:%M UTC") if deadline_dt else None
     for enroll in enrolled_students:
+        body = f'"{quiz.title}" has been added.'
+        if deadline_str:
+            body += f" Deadline: {deadline_str}."
         push_notification(
             db, enroll.student_id, "new_quiz",
             f'New quiz in "{course.title}"',
-            f'"{quiz.title}" has been added. Check it out!',
+            body,
             f"/student/courses/{course_id}",
         )
     db.commit()
 
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+    return _quiz_out(quiz)
 
 
 @router.post("/quizzes/{quiz_id}/questions", response_model=QuestionOut)
@@ -132,7 +163,7 @@ def publish_quiz(
     db.refresh(quiz)
 
     log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+    return _quiz_out(quiz)
 
 
 @router.patch("/quizzes/{quiz_id}/time-limit", response_model=QuizOut)
@@ -151,7 +182,7 @@ def set_time_limit(
     db.refresh(quiz)
 
     log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+    return _quiz_out(quiz)
 
 
 @router.get("/lessons/{lesson_id}/quizzes", response_model=list[QuizOut])
@@ -166,10 +197,7 @@ def list_quizzes_for_lesson(
     if user.role == UserRole.student:
         quizzes = [q for q in quizzes if q.is_published]
 
-    return [
-        QuizOut(id=q.id, lesson_id=q.lesson_id, title=q.title, is_published=q.is_published, time_limit_minutes=q.time_limit_minutes)
-        for q in quizzes
-    ]
+    return [_quiz_out(q) for q in quizzes]
 
 
 @router.get("/quizzes/{quiz_id}/questions", response_model=list[QuestionOut])
@@ -192,6 +220,7 @@ def list_questions(
         .all()
     )
 
+    is_teacher = user.role in {UserRole.teacher, UserRole.admin, UserRole.co_admin}
     return [
         QuestionOut(
             id=q.id,
@@ -201,6 +230,7 @@ def list_questions(
             option_b=q.option_b,
             option_c=q.option_c,
             option_d=q.option_d,
+            correct_option=q.correct_option if is_teacher else None,
             topic=q.topic,
             difficulty=q.difficulty,
         )
@@ -460,7 +490,7 @@ def update_quiz(
     db.commit()
     db.refresh(quiz)
     log_action(db, user.id, "UPDATE", "Quiz", str(quiz.id))
-    return QuizOut(id=quiz.id, lesson_id=quiz.lesson_id, title=quiz.title, is_published=quiz.is_published, time_limit_minutes=quiz.time_limit_minutes)
+    return _quiz_out(quiz)
 
 
 @router.delete("/quizzes/{quiz_id}", status_code=204)

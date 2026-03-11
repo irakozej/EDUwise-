@@ -6,6 +6,7 @@ WebSocket routes:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -15,7 +16,7 @@ from jose import jwt, JWTError
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models.quiz import Quiz
+from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAnswer
 from app.models.enrollment import Enrollment
 from app.models.user import User, UserRole
 from app.services.ws_manager import ws_manager
@@ -23,7 +24,16 @@ from app.services.ws_manager import ws_manager
 router = APIRouter()
 
 # ── per-quiz live state (in-memory, resets on restart) ────────────────────────
-# quiz_id -> {"question": {...}, "accepting": bool, "answers": {student_id: option}}
+# quiz_id -> {
+#   "question": {..., "question_id": int, "correct_option": str},
+#   "question_idx": int,   # index in questions list (for grading)
+#   "accepting": bool,
+#   "time_limit": int | None,   # seconds per question, set by teacher
+#   "answers": {student_id: option},
+#   "all_answers": {student_id: {question_id: option}},  # accumulates all questions
+#   "questions": [...],   # full ordered list with question_ids
+#   "participants": set(),
+# }
 _live_sessions: dict[int, dict[str, Any]] = {}
 
 
@@ -41,6 +51,79 @@ def _get_user_from_token(token: str) -> User | None:
         db.close()
 
 
+def _grade_and_save(quiz_id: int, session: dict[str, Any]) -> None:
+    """Grade all student answers from the live session and persist to DB."""
+    db: Session = SessionLocal()
+    try:
+        quiz = db.get(Quiz, quiz_id)
+        if not quiz:
+            return
+
+        all_answers: dict[int, dict[int, str]] = session.get("all_answers", {})
+        if not all_answers:
+            return
+
+        # Build correct_option map from DB questions
+        questions = (
+            db.query(QuizQuestion)
+            .filter(QuizQuestion.quiz_id == quiz_id)
+            .all()
+        )
+        correct_map = {q.id: q.correct_option for q in questions}
+        total = len(questions)
+        if total == 0:
+            return
+
+        for student_id, answers in all_answers.items():
+            correct_count = sum(
+                1 for qid, opt in answers.items()
+                if correct_map.get(qid, "").upper() == opt.upper()
+            )
+            score_pct = int(round(correct_count / total * 100))
+
+            # Upsert attempt — if student already has one, update it
+            existing = (
+                db.query(QuizAttempt)
+                .filter(
+                    QuizAttempt.student_id == student_id,
+                    QuizAttempt.quiz_id == quiz_id,
+                )
+                .first()
+            )
+            if existing:
+                attempt = existing
+                attempt.score_pct = score_pct
+                attempt.is_submitted = True
+                attempt.submitted_at = datetime.now(timezone.utc)
+                # Remove old answers
+                db.query(QuizAnswer).filter(QuizAnswer.attempt_id == attempt.id).delete()
+            else:
+                attempt = QuizAttempt(
+                    student_id=student_id,
+                    quiz_id=quiz_id,
+                    score_pct=score_pct,
+                    is_submitted=True,
+                    submitted_at=datetime.now(timezone.utc),
+                )
+                db.add(attempt)
+                db.flush()
+
+            for qid, opt in answers.items():
+                is_correct = correct_map.get(qid, "").upper() == opt.upper()
+                db.add(QuizAnswer(
+                    attempt_id=attempt.id,
+                    question_id=qid,
+                    selected_option=opt.upper(),
+                    is_correct=is_correct,
+                ))
+
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Notifications WebSocket ────────────────────────────────────────────────────
 
 @router.websocket("/ws/notifications")
@@ -53,9 +136,7 @@ async def ws_notifications(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     ws_manager.connect(user.id, websocket)
     try:
-        # Send welcome ping
         await websocket.send_text(json.dumps({"event": "connected", "user_id": user.id}))
-        # Keep alive — client can send pings, we echo pong
         while True:
             data = await websocket.receive_text()
             if data == "ping":
@@ -84,7 +165,6 @@ async def ws_live_quiz(websocket: WebSocket, quiz_id: int, token: str = Query(..
 
         is_teacher = user.role in {UserRole.teacher, UserRole.admin, UserRole.co_admin}
 
-        # Students must be enrolled in the course that owns this quiz
         if not is_teacher:
             from app.models.course import Lesson, Module
             lesson = db.get(Lesson, quiz.lesson_id)
@@ -100,30 +180,57 @@ async def ws_live_quiz(websocket: WebSocket, quiz_id: int, token: str = Query(..
             if not enrolled:
                 await websocket.close(code=4003)
                 return
+
+        # Load questions for this quiz (teacher only needs them for grading reference)
+        if is_teacher:
+            questions = (
+                db.query(QuizQuestion)
+                .filter(QuizQuestion.quiz_id == quiz_id)
+                .order_by(QuizQuestion.id)
+                .all()
+            )
+            questions_list = [
+                {
+                    "question_id": q.id,
+                    "question_text": q.question_text,
+                    "option_a": q.option_a,
+                    "option_b": q.option_b,
+                    "option_c": q.option_c,
+                    "option_d": q.option_d,
+                    "correct_option": q.correct_option,
+                }
+                for q in questions
+            ]
+        else:
+            questions_list = []
     finally:
         db.close()
 
     await websocket.accept()
 
-    # Init session state if first teacher
     if quiz_id not in _live_sessions:
         _live_sessions[quiz_id] = {
             "question": None,
             "accepting": False,
-            "answers": {},       # student_id -> chosen option
-            "participants": set(),  # student user_ids
+            "time_limit": None,
+            "answers": {},
+            "all_answers": {},
+            "questions": questions_list if is_teacher else [],
+            "participants": set(),
         }
+    elif is_teacher and not _live_sessions[quiz_id].get("questions"):
+        _live_sessions[quiz_id]["questions"] = questions_list
 
     session = _live_sessions[quiz_id]
 
     if not is_teacher:
         session["participants"].add(user.id)
 
-    # Send current state immediately on join
     await websocket.send_text(json.dumps({
         "event": "state",
         "question": session["question"],
         "accepting": session["accepting"],
+        "time_limit": session["time_limit"],
         "is_teacher": is_teacher,
         "participant_count": len(session["participants"]),
     }))
@@ -139,73 +246,109 @@ async def ws_live_quiz(websocket: WebSocket, quiz_id: int, token: str = Query(..
             event = msg.get("event")
 
             if is_teacher:
-                if event == "push_question":
-                    # Teacher broadcasts a question to all students
-                    session["question"] = msg.get("question")
+                if event == "set_time_limit":
+                    # Teacher sets seconds per question (0 = no limit)
+                    secs = int(msg.get("seconds", 0))
+                    session["time_limit"] = secs if secs > 0 else None
+                    await websocket.send_text(json.dumps({
+                        "event": "time_limit_set",
+                        "seconds": session["time_limit"],
+                    }))
+
+                elif event == "push_question":
+                    question = msg.get("question")
+                    session["question"] = question
                     session["accepting"] = True
                     session["answers"] = {}
 
                     broadcast = {
                         "event": "question",
-                        "question": session["question"],
+                        "question": {k: v for k, v in (question or {}).items() if k != "correct_option"},
                         "accepting": True,
+                        "time_limit": session["time_limit"],
                     }
                     await ws_manager.broadcast_to_users(
                         list(session["participants"]), broadcast
                     )
-                    await websocket.send_text(json.dumps({"event": "question_pushed", "participant_count": len(session["participants"])}))
+                    await websocket.send_text(json.dumps({
+                        "event": "question_pushed",
+                        "participant_count": len(session["participants"]),
+                    }))
 
                 elif event == "close_answers":
                     session["accepting"] = False
-                    # Send results to teacher
                     await websocket.send_text(json.dumps({
                         "event": "results",
                         "answers": session["answers"],
                         "total": len(session["participants"]),
                         "responded": len(session["answers"]),
                     }))
-                    # Tell students answers are closed
+                    correct = session["question"].get("correct_option") if session["question"] else None
                     await ws_manager.broadcast_to_users(
                         list(session["participants"]),
-                        {"event": "answers_closed", "correct": session["question"].get("correct_option") if session["question"] else None},
+                        {"event": "answers_closed", "correct": correct},
                     )
 
                 elif event == "end_session":
-                    await ws_manager.broadcast_to_users(
-                        list(session["participants"]),
-                        {"event": "session_ended"},
-                    )
+                    # Grade and save before ending
+                    _grade_and_save(quiz_id, session)
+
+                    # Send score to each student
+                    db3: Session = SessionLocal()
+                    try:
+                        for student_id in list(session["participants"]):
+                            attempt = (
+                                db3.query(QuizAttempt)
+                                .filter(
+                                    QuizAttempt.student_id == student_id,
+                                    QuizAttempt.quiz_id == quiz_id,
+                                )
+                                .first()
+                            )
+                            score = attempt.score_pct if attempt else None
+                            await ws_manager.send_to_user(student_id, {
+                                "event": "session_ended",
+                                "score_pct": score,
+                            })
+                    finally:
+                        db3.close()
+
                     _live_sessions.pop(quiz_id, None)
                     break
 
             else:
-                # Student submitting an answer
                 if event == "answer" and session["accepting"]:
-                    chosen = msg.get("option")
+                    chosen = msg.get("option", "").upper()
                     session["answers"][user.id] = chosen
-                    await websocket.send_text(json.dumps({"event": "answer_received", "option": chosen}))
 
-                    # Notify teacher of live tally update
-                    # (teacher connection tracked via ws_manager)
+                    # Accumulate for final grading
+                    qid = (session["question"] or {}).get("question_id")
+                    if qid:
+                        if user.id not in session["all_answers"]:
+                            session["all_answers"][user.id] = {}
+                        session["all_answers"][user.id][qid] = chosen
+
+                    await websocket.send_text(json.dumps({
+                        "event": "answer_received",
+                        "option": chosen,
+                    }))
+
+                    # Tally update to teacher
                     db2: Session = SessionLocal()
                     try:
                         quiz2 = db2.get(Quiz, quiz_id)
                         if quiz2:
-                            teacher_id = None
-                            from app.models.course import Lesson, Module
+                            from app.models.course import Lesson, Module, Course
                             lesson2 = db2.get(Lesson, quiz2.lesson_id)
                             module2 = lesson2 and db2.get(Module, lesson2.module_id)
                             if module2:
-                                from app.models.course import Course
                                 course2 = db2.get(Course, module2.course_id)
                                 if course2:
-                                    teacher_id = course2.teacher_id
-                            if teacher_id:
-                                await ws_manager.send_to_user(teacher_id, {
-                                    "event": "tally",
-                                    "responded": len(session["answers"]),
-                                    "total": len(session["participants"]),
-                                })
+                                    await ws_manager.send_to_user(course2.teacher_id, {
+                                        "event": "tally",
+                                        "responded": len(session["answers"]),
+                                        "total": len(session["participants"]),
+                                    })
                     finally:
                         db2.close()
 

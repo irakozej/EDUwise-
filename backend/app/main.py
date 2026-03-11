@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
         from apscheduler.schedulers.background import BackgroundScheduler
         from app.services.retrain import retrain_model_job
 
+        from app.services.quiz_deadline import send_deadline_reminders
+
         scheduler = BackgroundScheduler(timezone="UTC")
         scheduler.add_job(
             retrain_model_job,
@@ -54,8 +56,15 @@ async def lifespan(app: FastAPI):
             id="retrain_risk_model",
             replace_existing=True,
         )
+        scheduler.add_job(
+            send_deadline_reminders,
+            trigger="interval",
+            minutes=30,
+            id="quiz_deadline_reminders",
+            replace_existing=True,
+        )
         scheduler.start()
-        print("[startup] ML retraining scheduler started — runs every 24 h (UTC)")
+        print("[startup] Schedulers started — ML retraining every 24h, deadline reminders every 30m")
     except ImportError:
         print("[startup] apscheduler not installed — scheduler disabled. Run: pip install apscheduler>=3.10.4")
     except Exception as e:

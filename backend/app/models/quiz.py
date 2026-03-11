@@ -11,6 +11,9 @@ class Quiz(Base):
     title: Mapped[str] = mapped_column(String(200))
     is_published: Mapped[bool] = mapped_column(Boolean, default=False)
     time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "self_paced" (students take anytime before deadline) or "live" (teacher-hosted real-time)
+    quiz_type: Mapped[str] = mapped_column(String(20), default="self_paced", server_default="self_paced")
+    deadline: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -6,6 +6,8 @@ class QuizCreate(BaseModel):
     lesson_id: int
     title: str
     time_limit_minutes: Optional[int] = None
+    quiz_type: str = "self_paced"   # "self_paced" | "live"
+    deadline: Optional[str] = None  # ISO datetime string, only for self_paced
 
 
 class QuizOut(BaseModel):
@@ -14,6 +16,8 @@ class QuizOut(BaseModel):
     title: str
     is_published: bool
     time_limit_minutes: Optional[int] = None
+    quiz_type: str = "self_paced"
+    deadline: Optional[str] = None
 
 
 class QuestionCreate(BaseModel):
@@ -35,6 +39,7 @@ class QuestionOut(BaseModel):
     option_b: str
     option_c: str
     option_d: str
+    correct_option: Optional[str] = None  # only returned to teachers
     topic: Optional[str] = None
     difficulty: Optional[str] = None
 
