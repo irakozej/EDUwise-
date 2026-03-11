@@ -6,7 +6,7 @@ const baseURL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 export const api = axios.create({ baseURL, timeout: 15000 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("eduwise_access_token");
+  const token = sessionStorage.getItem("eduwise_access_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
