@@ -217,9 +217,12 @@ async def ws_live_quiz(websocket: WebSocket, quiz_id: int, token: str = Query(..
             "all_answers": {},
             "questions": questions_list if is_teacher else [],
             "participants": set(),
+            "teacher_id": user.id if is_teacher else None,
         }
-    elif is_teacher and not _live_sessions[quiz_id].get("questions"):
-        _live_sessions[quiz_id]["questions"] = questions_list
+    elif is_teacher:
+        if not _live_sessions[quiz_id].get("questions"):
+            _live_sessions[quiz_id]["questions"] = questions_list
+        _live_sessions[quiz_id]["teacher_id"] = user.id
 
     session = _live_sessions[quiz_id]
 
@@ -333,24 +336,19 @@ async def ws_live_quiz(websocket: WebSocket, quiz_id: int, token: str = Query(..
                         "option": chosen,
                     }))
 
-                    # Tally update to teacher
-                    db2: Session = SessionLocal()
-                    try:
-                        quiz2 = db2.get(Quiz, quiz_id)
-                        if quiz2:
-                            from app.models.course import Lesson, Module, Course
-                            lesson2 = db2.get(Lesson, quiz2.lesson_id)
-                            module2 = lesson2 and db2.get(Module, lesson2.module_id)
-                            if module2:
-                                course2 = db2.get(Course, module2.course_id)
-                                if course2:
-                                    await ws_manager.send_to_user(course2.teacher_id, {
-                                        "event": "tally",
-                                        "responded": len(session["answers"]),
-                                        "total": len(session["participants"]),
-                                    })
-                    finally:
-                        db2.close()
+                    # Tally update to teacher — compute per-option counts
+                    teacher_id = session.get("teacher_id")
+                    if teacher_id:
+                        counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+                        for opt in session["answers"].values():
+                            if opt in counts:
+                                counts[opt] += 1
+                        await ws_manager.send_to_user(teacher_id, {
+                            "event": "tally",
+                            "responded": len(session["answers"]),
+                            "total": len(session["participants"]),
+                            "counts": counts,
+                        })
 
     except WebSocketDisconnect:
         pass

@@ -15,9 +15,10 @@ type Question = {
 
 type QuizInfo = { id: number; title: string };
 
+const OPTS = ["A", "B", "C", "D"] as const;
+
 function wsUrl(quizId: string): string {
   const token = getAccessToken() ?? "";
-  // Strip any path (e.g. /api/v1) from VITE_API_URL — WS endpoint lives at root /ws/quiz/...
   const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
   let origin: string;
   try { origin = new URL(apiUrl).origin; } catch { origin = window.location.origin; }
@@ -36,12 +37,13 @@ export default function TeacherLiveQuiz() {
   const [participants, setParticipants] = useState(0);
   const [responded, setResponded] = useState(0);
   const [accepting, setAccepting] = useState(false);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [liveCounts, setLiveCounts] = useState<Record<string, number>>({ A: 0, B: 0, C: 0, D: 0 });
   const [sessionStarted, setSessionStarted] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [timeLimitSecs, setTimeLimitSecs] = useState(30);
   const [timeLimitActive, setTimeLimitActive] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [correctOption, setCorrectOption] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -72,13 +74,14 @@ export default function TeacherLiveQuiz() {
         setParticipants(msg.participant_count ?? 0);
         setResponded(0);
         setAccepting(true);
+        setCorrectOption(null);
       }
       if (msg.event === "tally") {
         setResponded(msg.responded ?? 0);
-        setParticipants(msg.total ?? participants);
+        setParticipants(msg.total ?? 0);
+        if (msg.counts) setLiveCounts(msg.counts);
       }
       if (msg.event === "results") {
-        setAnswers(msg.answers ?? {});
         setAccepting(false);
         clearCountdown();
       }
@@ -109,7 +112,8 @@ export default function TeacherLiveQuiz() {
     if (!q) return;
     setCurrentIdx(idx);
     setResponded(0);
-    setAnswers({});
+    setLiveCounts({ A: 0, B: 0, C: 0, D: 0 });
+    setCorrectOption(null);
     clearCountdown();
 
     send({
@@ -141,6 +145,8 @@ export default function TeacherLiveQuiz() {
 
   function closeAnswers() {
     clearCountdown();
+    const q = questions[currentIdx];
+    if (q) setCorrectOption(q.correct_option);
     send({ event: "close_answers" });
   }
 
@@ -151,9 +157,7 @@ export default function TeacherLiveQuiz() {
   }
 
   const current = questions[currentIdx];
-  const tally: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-  Object.values(answers).forEach((opt) => { if (opt in tally) tally[opt as keyof typeof tally]++; });
-  const totalAnswered = Object.values(tally).reduce((a, b) => a + b, 0);
+  const totalAnswered = Object.values(liveCounts).reduce((a, b) => a + b, 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-violet-950 to-slate-900 text-white">
@@ -184,7 +188,7 @@ export default function TeacherLiveQuiz() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mx-auto max-w-5xl px-6 py-8">
         {sessionEnded ? (
           <div className="text-center py-20">
             <div className="text-xl font-bold mb-2">Session Ended</div>
@@ -201,7 +205,6 @@ export default function TeacherLiveQuiz() {
               <p className="text-slate-400 text-sm mt-1">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
             </div>
 
-            {/* Participant counter */}
             <div className="rounded-2xl bg-white/5 border border-white/10 px-8 py-6">
               <div className="text-5xl font-black text-violet-300">{participants}</div>
               <div className="text-sm text-slate-400 mt-1">student{participants !== 1 ? "s" : ""} joined</div>
@@ -211,25 +214,16 @@ export default function TeacherLiveQuiz() {
               </div>
             </div>
 
-            {/* Time limit setup */}
             <div className="rounded-2xl bg-white/5 border border-white/10 p-4 text-left space-y-3">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Time per question</div>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={timeLimitActive}
-                  onChange={(e) => setTimeLimitActive(e.target.checked)}
-                  className="rounded"
-                />
+                <input type="checkbox" checked={timeLimitActive} onChange={(e) => setTimeLimitActive(e.target.checked)} className="rounded" />
                 <span className="text-xs text-slate-300">Enable countdown timer</span>
               </label>
               {timeLimitActive && (
                 <div className="flex items-center gap-2">
                   <input
-                    type="number"
-                    min={5}
-                    max={300}
-                    value={timeLimitSecs}
+                    type="number" min={5} max={300} value={timeLimitSecs}
                     onChange={(e) => setTimeLimitSecs(Number(e.target.value))}
                     className="w-20 rounded-lg bg-white/10 border border-white/20 px-2 py-1 text-sm text-white text-center"
                   />
@@ -246,14 +240,13 @@ export default function TeacherLiveQuiz() {
               Start Quiz
             </button>
             {questions.length === 0 && (
-              <p className="text-xs text-rose-400">This quiz has no questions yet.</p>
+              <p className="text-xs text-rose-400">This quiz has no questions yet. Go back and add questions first.</p>
             )}
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* Left column: time limit + question list */}
+            {/* ── Left panel: question list ── */}
             <div className="lg:col-span-1 space-y-4">
-              {/* Compact timer indicator */}
               <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 flex items-center justify-between">
                 <span className="text-xs text-slate-400">Timer</span>
                 <span className="text-xs font-semibold text-slate-300">
@@ -261,22 +254,29 @@ export default function TeacherLiveQuiz() {
                 </span>
               </div>
 
-              {/* Question list */}
               <div>
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Questions ({questions.length})</div>
-                <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  Questions ({questions.length})
+                </div>
+                <div className="space-y-1.5">
                   {questions.map((q, i) => (
                     <button
-                      key={i}
+                      key={q.id}
                       onClick={() => pushQuestion(i)}
-                      className={`w-full text-left rounded-xl px-3 py-2.5 text-xs transition ${
+                      className={`w-full text-left rounded-xl px-3 py-2.5 transition ${
                         currentIdx === i
                           ? "bg-violet-600 text-white"
                           : "bg-white/5 text-slate-300 hover:bg-white/10"
                       }`}
                     >
-                      <span className="font-bold mr-2">Q{i + 1}.</span>
-                      <span className="line-clamp-2">{q.question_text}</span>
+                      <div className="flex items-start gap-2">
+                        <span className={`shrink-0 text-[10px] font-black mt-0.5 w-5 h-5 rounded-full flex items-center justify-center ${
+                          currentIdx === i ? "bg-white/20" : "bg-white/10"
+                        }`}>
+                          {i + 1}
+                        </span>
+                        <span className="text-xs line-clamp-2">{q.question_text}</span>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -284,56 +284,79 @@ export default function TeacherLiveQuiz() {
 
               <button
                 onClick={endSession}
-                className="w-full rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/20"
+                className="w-full rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/20"
               >
                 End Session & Save Scores
               </button>
             </div>
 
-            {/* Right column: live view */}
+            {/* ── Right panel: live question + bar chart ── */}
             <div className="lg:col-span-2 space-y-4">
               {currentIdx === -1 ? (
-                <div className="rounded-2xl bg-white/5 border border-white/10 p-10 text-center">
-                  <div className="text-sm font-semibold text-slate-300">Select a question to push it live</div>
-                  <p className="text-xs text-slate-500 mt-1">Students will see it immediately on their screen.</p>
+                <div className="rounded-2xl bg-white/5 border border-white/10 p-12 text-center">
+                  <div className="text-3xl mb-3">👈</div>
+                  <div className="text-sm font-semibold text-slate-300">Click a question to push it live</div>
+                  <p className="text-xs text-slate-500 mt-1">Students will see it instantly on their screen.</p>
                 </div>
               ) : current ? (
                 <>
+                  {/* Question card */}
                   <div className="rounded-2xl bg-white/5 border border-white/10 p-5">
-                    <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2 mb-4">
                       <span className="text-xs font-bold bg-violet-500 text-white px-2 py-0.5 rounded-full">Q{currentIdx + 1}</span>
-                      {accepting && <span className="text-xs text-amber-300 animate-pulse font-medium">Accepting answers…</span>}
+                      {accepting && (
+                        <span className="flex items-center gap-1 text-xs text-amber-300 animate-pulse font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                          Accepting answers…
+                        </span>
+                      )}
+                      {!accepting && correctOption && (
+                        <span className="text-xs text-emerald-400 font-semibold">Correct: {correctOption}</span>
+                      )}
                       {countdown !== null && (
-                        <span className={`ml-auto text-xs font-black px-2 py-0.5 rounded-full ${countdown <= 5 ? "bg-rose-500/40 text-rose-200" : "bg-amber-500/20 text-amber-300"}`}>
+                        <span className={`ml-auto text-sm font-black px-3 py-0.5 rounded-full ${countdown <= 5 ? "bg-rose-500/40 text-rose-200 animate-pulse" : "bg-amber-500/20 text-amber-300"}`}>
                           {countdown}s
                         </span>
                       )}
                     </div>
-                    <div className="text-sm font-semibold text-white mb-4">{current.question_text}</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["A", "B", "C", "D"] as const).map((opt) => {
+                    <div className="text-base font-semibold text-white mb-5 leading-snug">{current.question_text}</div>
+
+                    {/* ── Real-time bar chart ── */}
+                    <div className="space-y-3">
+                      {OPTS.map((opt) => {
                         const text = current[`option_${opt.toLowerCase()}` as keyof Question] as string;
-                        const count = tally[opt] ?? 0;
+                        const count = liveCounts[opt] ?? 0;
                         const pct = totalAnswered > 0 ? Math.round((count / totalAnswered) * 100) : 0;
-                        const isCorrect = opt === current.correct_option;
+                        const isCorrect = !accepting && opt === correctOption;
                         return (
-                          <div key={opt} className={`rounded-xl border p-3 relative overflow-hidden ${isCorrect && !accepting ? "border-emerald-400/50 bg-emerald-500/10" : "border-white/10 bg-white/5"}`}>
-                            <div className="relative z-10">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] font-bold text-slate-400">{opt}</span>
-                                {!accepting && <span className="text-[10px] font-bold text-white">{count} ({pct}%)</span>}
+                          <div key={opt}>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-black ${
+                                  isCorrect ? "bg-emerald-500 text-white" : "bg-white/15 text-slate-300"
+                                }`}>{opt}</span>
+                                <span className="text-xs text-slate-200 truncate">{text}</span>
                               </div>
-                              <div className="text-xs text-slate-200">{text}</div>
+                              <span className="shrink-0 text-xs font-bold text-white ml-2">
+                                {count} <span className="text-slate-400 font-normal">({pct}%)</span>
+                              </span>
                             </div>
-                            {!accepting && (
-                              <div className="absolute bottom-0 left-0 h-1 bg-violet-500 transition-all" style={{ width: `${pct}%` }} />
-                            )}
+                            <div className="w-full h-5 rounded-lg bg-white/10 overflow-hidden">
+                              <div
+                                className={`h-full rounded-lg transition-all duration-500 ${
+                                  isCorrect ? "bg-emerald-500" :
+                                  accepting ? "bg-violet-500" : "bg-slate-500"
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
+                  {/* Response counter + action buttons */}
                   <div className="flex items-center gap-3 flex-wrap">
                     <div className="flex-1 rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-center">
                       <div className="text-2xl font-black text-violet-300">{responded}</div>
