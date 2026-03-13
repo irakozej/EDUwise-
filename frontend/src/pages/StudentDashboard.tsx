@@ -27,6 +27,22 @@ type CoursePeople = {
   people: { id: number; full_name: string; email: string; role: string }[];
 };
 
+type XPData = {
+  total_xp: number;
+  level: number;
+  xp_to_next_level: number;
+  recent_events: { event_type: string; xp_earned: number; created_at: string }[];
+};
+
+type BadgeInfo = {
+  badge_key: string;
+  name: string;
+  desc: string;
+  icon: string;
+  earned: boolean;
+  earned_at: string | null;
+};
+
 function classNames(...xs: Array<string | boolean | undefined | null>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -66,6 +82,8 @@ export default function StudentDashboard() {
   const [error, setError] = useState<string>("");
   const [msgOpen, setMsgOpen] = useState(false);
   const [msgUnread, setMsgUnread] = useState(0);
+  const [xpData, setXpData] = useState<XPData | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<BadgeInfo[]>([]);
 
   // AI study suggestions (lazy — load on demand)
   type AiSuggestion = { title: string; description: string; priority: "high" | "medium" | "low"; category: string };
@@ -82,15 +100,19 @@ export default function StudentDashboard() {
     setError("");
 
     try {
-      const [d, r, peopleRes] = await Promise.all([
+      const [d, r, peopleRes, xpRes, badgeRes] = await Promise.all([
         api.get<DashboardData>("/api/v1/me/dashboard"),
         api.get<RiskData>("/api/v1/me/risk-score"),
         api.get<CoursePeople[]>("/api/v1/me/people").catch(() => ({ data: [] })),
+        api.get<XPData>("/api/v1/me/xp").catch(() => ({ data: null })),
+        api.get<{ all_badges: BadgeInfo[] }>("/api/v1/me/badges").catch(() => ({ data: { all_badges: [] } })),
       ]);
 
       setDashboard(d.data);
       setRisk(r.data);
       setPeople(peopleRes.data);
+      if (xpRes.data) setXpData(xpRes.data);
+      setEarnedBadges((badgeRes.data?.all_badges ?? []).filter((b) => b.earned));
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setError(e?.response?.data?.detail || e?.message || "Failed to load data");
@@ -265,6 +287,30 @@ export default function StudentDashboard() {
                 <div className="mt-1 text-xs text-emerald-600">{dashboard?.quizzes?.attempts_total ?? 0} attempts</div>
               </div>
               <div className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-100 text-emerald-600 text-lg"></div>
+            </div>
+          </Link>
+
+          {/* XP / Level */}
+          <Link to="/student/achievements" className="block rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm transition hover:shadow-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-500">Level & XP</div>
+                <div className="mt-1 text-3xl font-bold text-amber-900">
+                  {xpData ? `Lv ${xpData.level}` : loading ? "…" : "Lv 1"}
+                </div>
+                <div className="mt-1 text-xs text-amber-700">{xpData?.total_xp ?? 0} XP earned</div>
+                {xpData && (
+                  <div className="mt-2 h-1.5 w-full rounded-full bg-amber-200">
+                    <div
+                      className="h-1.5 rounded-full bg-amber-500 transition-all"
+                      style={{ width: `${xpData.xp_to_next_level > 0 ? Math.round(((xpData.total_xp % 100) / 100) * 100) : 100}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="text-2xl select-none">
+                {(xpData?.level ?? 0) >= 8 ? "🏆" : (xpData?.level ?? 0) >= 5 ? "⭐" : "🚀"}
+              </div>
             </div>
           </Link>
 
@@ -449,29 +495,82 @@ export default function StudentDashboard() {
             )}
           </div>
 
-          {/* Activity */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-slate-900 mb-1">Activity</h2>
-            <p className="text-xs text-slate-500 mb-4">Your learning totals</p>
-
-            {loading && <PageLoader />}
-            {!loading && dashboard && (
-              <div className="space-y-2">
-                {Object.entries(dashboard.events.by_type || {}).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
-                    <span className="text-xs text-slate-600">{formatEventLabel(k)}</span>
-                    <span className="text-sm font-bold text-slate-900">{String(v)}</span>
-                  </div>
-                ))}
-                {Object.keys(dashboard.events.by_type || {}).length === 0 && (
-                  <div className="text-xs text-slate-400">No events recorded yet.</div>
-                )}
-                <div className="mt-3 flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 px-3 py-2.5">
-                  <span className="text-xs font-medium text-sky-700">Total events</span>
-                  <span className="text-sm font-bold text-sky-900">{dashboard.events.total}</span>
+          {/* Gamification sidebar */}
+          <div className="space-y-4">
+            {/* Recent XP events */}
+            {xpData && xpData.recent_events.length > 0 && (
+              <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-slate-900">Recent XP</h2>
+                  <Link to="/student/achievements" className="text-xs text-amber-600 hover:underline font-medium">View all →</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {xpData.recent_events.slice(0, 4).map((ev, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2">
+                      <span className="text-xs text-slate-700">{ev.event_type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+                      <span className="text-xs font-bold text-amber-600">+{ev.xp_earned} XP</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
+
+            {/* Earned badges */}
+            {earnedBadges.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-slate-900">Badges <span className="ml-1 text-xs font-normal text-slate-400">({earnedBadges.length})</span></h2>
+                  <Link to="/student/achievements" className="text-xs text-violet-600 hover:underline font-medium">All →</Link>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {earnedBadges.slice(0, 6).map((b) => (
+                    <div key={b.badge_key} title={`${b.name}: ${b.desc}`} className="flex items-center gap-1.5 rounded-xl bg-emerald-50 border border-emerald-200 px-2.5 py-1.5">
+                      <span className="text-lg">{b.icon}</span>
+                      <span className="text-[10px] font-semibold text-emerald-800">{b.name}</span>
+                    </div>
+                  ))}
+                  {earnedBadges.length > 6 && (
+                    <Link to="/student/achievements" className="flex items-center rounded-xl border border-dashed border-slate-300 px-2.5 py-1.5 text-[10px] text-slate-500 hover:bg-slate-50">
+                      +{earnedBadges.length - 6} more
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* No badges yet prompt */}
+            {!loading && earnedBadges.length === 0 && (
+              <Link to="/student/achievements" className="block rounded-2xl border border-dashed border-violet-200 bg-violet-50/50 p-5 text-center hover:bg-violet-50 transition">
+                <div className="text-2xl mb-1">🎯</div>
+                <div className="text-xs font-semibold text-violet-700">No badges yet</div>
+                <div className="text-[10px] text-violet-500 mt-0.5">Complete lessons & quizzes to earn XP and badges!</div>
+              </Link>
+            )}
+
+            {/* Activity */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-base font-semibold text-slate-900 mb-1">Activity</h2>
+              <p className="text-xs text-slate-500 mb-4">Your learning totals</p>
+
+              {loading && <PageLoader />}
+              {!loading && dashboard && (
+                <div className="space-y-2">
+                  {Object.entries(dashboard.events.by_type || {}).map(([k, v]) => (
+                    <div key={k} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+                      <span className="text-xs text-slate-600">{formatEventLabel(k)}</span>
+                      <span className="text-sm font-bold text-slate-900">{String(v)}</span>
+                    </div>
+                  ))}
+                  {Object.keys(dashboard.events.by_type || {}).length === 0 && (
+                    <div className="text-xs text-slate-400">No events recorded yet.</div>
+                  )}
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 px-3 py-2.5">
+                    <span className="text-xs font-medium text-sky-700">Total events</span>
+                    <span className="text-sm font-bold text-sky-900">{dashboard.events.total}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>}
 
