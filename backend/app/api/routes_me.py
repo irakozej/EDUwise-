@@ -305,6 +305,99 @@ def my_submission_history(
     ]
 
 
+# ── Student: grades per course ────────────────────────────────────────────────
+
+@router.get("/me/grades")
+def my_grades(
+    course_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.student)),
+):
+    """Return quiz and assignment grades for the student, optionally filtered by course."""
+    # Enrolled courses list (for the selector)
+    enrollments = (
+        db.query(Enrollment, Course)
+        .join(Course, Course.id == Enrollment.course_id)
+        .filter(Enrollment.student_id == user.id, Enrollment.status == "active")
+        .all()
+    )
+    courses = [{"course_id": c.id, "title": c.title} for _, c in enrollments]
+
+    if course_id is None and courses:
+        course_id = courses[0]["course_id"]
+
+    quiz_grades = []
+    assignment_grades = []
+    overall_quiz_avg = None
+    overall_assignment_avg = None
+
+    if course_id:
+        # Quiz grades for this course
+        quiz_rows = (
+            db.query(QuizAttempt, Quiz)
+            .join(Quiz, Quiz.id == QuizAttempt.quiz_id)
+            .join(Lesson, Lesson.id == Quiz.lesson_id)
+            .join(Module, Module.id == Lesson.module_id)
+            .filter(
+                Module.course_id == course_id,
+                QuizAttempt.student_id == user.id,
+                QuizAttempt.is_submitted == True,  # noqa: E712
+            )
+            .order_by(QuizAttempt.submitted_at.desc())
+            .all()
+        )
+        for attempt, quiz in quiz_rows:
+            quiz_grades.append({
+                "quiz_id": quiz.id,
+                "quiz_title": quiz.title,
+                "quiz_type": quiz.quiz_type or "self_paced",
+                "score_pct": attempt.score_pct,
+                "submitted_at": str(attempt.submitted_at) if attempt.submitted_at else None,
+            })
+
+        # Assignment grades for this course
+        assign_rows = (
+            db.query(Submission, Assignment)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Lesson, Lesson.id == Assignment.lesson_id)
+            .join(Module, Module.id == Lesson.module_id)
+            .filter(
+                Module.course_id == course_id,
+                Submission.student_id == user.id,
+                Submission.is_submitted == True,  # noqa: E712
+            )
+            .order_by(Submission.submitted_at.desc())
+            .all()
+        )
+        for sub, assignment in assign_rows:
+            assignment_grades.append({
+                "assignment_id": assignment.id,
+                "assignment_title": assignment.title,
+                "max_score": assignment.max_score,
+                "grade": sub.grade,
+                "feedback": sub.feedback,
+                "submitted_at": str(sub.submitted_at) if sub.submitted_at else None,
+                "graded_at": str(sub.graded_at) if sub.graded_at else None,
+            })
+
+        scored_quizzes = [q["score_pct"] for q in quiz_grades if q["score_pct"] is not None]
+        if scored_quizzes:
+            overall_quiz_avg = round(sum(scored_quizzes) / len(scored_quizzes), 1)
+
+        graded_assignments = [a["grade"] for a in assignment_grades if a["grade"] is not None]
+        if graded_assignments:
+            overall_assignment_avg = round(sum(graded_assignments) / len(graded_assignments), 1)
+
+    return {
+        "courses": courses,
+        "selected_course_id": course_id,
+        "quiz_grades": quiz_grades,
+        "assignment_grades": assignment_grades,
+        "overall_quiz_avg": overall_quiz_avg,
+        "overall_assignment_avg": overall_assignment_avg,
+    }
+
+
 # ── Student: study streak ─────────────────────────────────────────────────────
 
 @router.get("/me/streak")

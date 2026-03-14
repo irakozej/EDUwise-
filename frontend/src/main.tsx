@@ -21,6 +21,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import TeacherLiveQuiz from "./pages/TeacherLiveQuiz";
 import StudentLiveQuiz from "./pages/StudentLiveQuiz";
+import StudentGrades from "./pages/StudentGrades";
 
 export function App() {
   return (
@@ -35,6 +36,7 @@ export function App() {
         <Route path="/student/quizzes" element={<StudentQuizzes />} />
         <Route path="/student/quizzes/:quizId" element={<StudentTakeQuiz />} />
         <Route path="/student/history" element={<StudentHistory />} />
+        <Route path="/student/grades" element={<StudentGrades />} />
         <Route path="/student/achievements" element={<StudentGamification />} />
         <Route path="/student/lessons/:lessonId/exercises" element={<StudentExercise />} />
 
