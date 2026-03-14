@@ -24,7 +24,8 @@ type Analytics = {
   enrollments_active: number;
   lessons_total: number;
   progress: { avg_progress_pct: number | null; completed_progress_rows: number };
-  quizzes: { published: number; attempts_total: number; avg_score_pct: number | null };
+  quizzes: { published: number; attempts_total: number; avg_score_pct: number | null; score_distribution: Record<string, number> };
+  lesson_completion: { lesson_id: number; lesson_title: string; module_title: string; completed: number; total_students: number; completion_rate: number }[];
   events: { total: number; by_type: Record<string, number> };
 };
 
@@ -1971,7 +1972,7 @@ export default function TeacherCourseDetail() {
 
         {/* ── ANALYTICS TAB ───────────────────────────────────────────────── */}
         {tab === "analytics" && (
-          <div className="mt-6">
+          <div className="mt-6 space-y-6">
             <SectionHeader
               title="Course Analytics"
               action={
@@ -1988,62 +1989,149 @@ export default function TeacherCourseDetail() {
             {!analytics ? (
               <div className="text-sm text-slate-500">No analytics data available.</div>
             ) : (
-              <div className="space-y-4">
+              <>
+                {/* (a) KPI row */}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {[
-                    { label: "Active Students", value: analytics.enrollments_active },
-                    { label: "Total Lessons", value: analytics.lessons_total },
-                    { label: "Published Quizzes", value: analytics.quizzes.published },
-                    { label: "Quiz Attempts", value: analytics.quizzes.attempts_total },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="text-xs font-medium text-slate-500">{label}</div>
-                      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+                    { label: "Total Enrolments", value: analytics.enrollments_active, color: "text-sky-700", bg: "bg-sky-50 border-sky-200" },
+                    { label: "Avg Course Progress", value: analytics.progress.avg_progress_pct !== null ? `${Math.round(analytics.progress.avg_progress_pct)}%` : "—", color: "text-violet-700", bg: "bg-violet-50 border-violet-200" },
+                    { label: "Avg Quiz Score", value: analytics.quizzes.avg_score_pct !== null ? `${Math.round(analytics.quizzes.avg_score_pct)}%` : "—", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+                    { label: "Quiz Attempts", value: analytics.quizzes.attempts_total, color: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
+                  ].map(({ label, value, color, bg }) => (
+                    <div key={label} className={`rounded-2xl border ${bg} p-4 shadow-sm`}>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+                      <div className={`mt-1 text-3xl font-bold ${color}`}>{value}</div>
+                      {label === "Avg Course Progress" && (
+                        <div className="mt-2 h-1.5 w-full rounded-full bg-white/60">
+                          <div className="h-1.5 rounded-full bg-violet-500 transition-all" style={{ width: `${Math.min(100, analytics.progress.avg_progress_pct ?? 0)}%` }} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-xs font-medium text-slate-500">Avg Progress</div>
-                    <div className="mt-1 text-2xl font-semibold text-slate-900">
-                      {analytics.progress.avg_progress_pct !== null
-                        ? `${Math.round(analytics.progress.avg_progress_pct)}%`
-                        : "—"}
+                {/* (b) Quiz score distribution chart */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-800 mb-4">Quiz Score Distribution</div>
+                  {Object.values(analytics.quizzes.score_distribution).every(v => v === 0) ? (
+                    <p className="text-xs text-slate-400">No submitted quiz attempts yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {Object.entries(analytics.quizzes.score_distribution).map(([range, count]) => {
+                        const total = Object.values(analytics.quizzes.score_distribution).reduce((a, b) => a + b, 0);
+                        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                        const barColor =
+                          range === "81-100" ? "bg-emerald-500" :
+                          range === "61-80" ? "bg-sky-500" :
+                          range === "41-60" ? "bg-amber-400" :
+                          range === "21-40" ? "bg-orange-400" : "bg-rose-400";
+                        return (
+                          <div key={range}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-slate-600">{range}%</span>
+                              <span className="text-xs text-slate-500">{count} student{count !== 1 ? "s" : ""} ({pct}%)</span>
+                            </div>
+                            <div className="w-full h-6 rounded-lg bg-slate-100 overflow-hidden">
+                              <div className={`h-full rounded-lg transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                      <div
-                        className="h-2 rounded-full bg-slate-900 transition-all"
-                        style={{ width: `${Math.min(100, analytics.progress.avg_progress_pct ?? 0)}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 text-xs text-slate-500">
-                      {analytics.progress.completed_progress_rows} lessons at 100%
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-xs font-medium text-slate-500">Avg Quiz Score</div>
-                    <div className="mt-1 text-2xl font-semibold text-slate-900">
-                      {analytics.quizzes.avg_score_pct !== null ? `${Math.round(analytics.quizzes.avg_score_pct)}%` : "—"}
-                    </div>
-                  </div>
+                  )}
                 </div>
 
-                {Object.keys(analytics.events.by_type).length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="text-xs font-medium text-slate-500 mb-3">Events Breakdown (total: {analytics.events.total})</div>
-                    <div className="space-y-2">
-                      {Object.entries(analytics.events.by_type).map(([type, count]) => (
-                        <div key={type} className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600 capitalize">{type.replace(/_/g, " ")}</span>
-                          <span className="font-semibold text-slate-900">{count}</span>
+                {/* (c) Per-lesson completion breakdown */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-800 mb-4">Per-Lesson Completion</div>
+                  {analytics.lesson_completion.length === 0 ? (
+                    <p className="text-xs text-slate-400">No lessons yet.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {analytics.lesson_completion.map((lc) => (
+                        <div key={lc.lesson_id}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="min-w-0">
+                              <span className="text-xs font-medium text-slate-800 truncate block">{lc.lesson_title}</span>
+                              <span className="text-[10px] text-slate-400">{lc.module_title}</span>
+                            </div>
+                            <span className="shrink-0 ml-3 text-xs font-semibold text-slate-700">
+                              {lc.completed}/{lc.total_students} <span className="text-slate-400 font-normal">({lc.completion_rate}%)</span>
+                            </span>
+                          </div>
+                          <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${lc.completion_rate >= 80 ? "bg-emerald-500" : lc.completion_rate >= 50 ? "bg-sky-500" : "bg-slate-400"}`}
+                              style={{ width: `${lc.completion_rate}%` }}
+                            />
+                          </div>
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* (d) At-risk students */}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <div className="text-sm font-semibold text-amber-900">At-Risk Students</div>
+                      <div className="text-xs text-amber-600 mt-0.5">Flagged by ML dropout-risk model (threshold ≥ 40%)</div>
+                    </div>
+                    <button
+                      onClick={loadAtRisk}
+                      disabled={loadingAtRisk}
+                      className="rounded-xl bg-amber-100 border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+                    >
+                      {loadingAtRisk ? "Running…" : atRiskLoaded ? "Refresh" : "Run Analysis"}
+                    </button>
                   </div>
-                )}
-              </div>
+
+                  {!atRiskLoaded && !loadingAtRisk && (
+                    <p className="text-xs text-amber-700">Click "Run Analysis" to identify students at risk of dropping out.</p>
+                  )}
+                  {loadingAtRisk && (
+                    <div className="flex items-center gap-2 text-xs text-amber-700">
+                      <div className="h-4 w-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+                      Analysing student engagement…
+                    </div>
+                  )}
+                  {atRiskLoaded && !loadingAtRisk && atRiskStudents.length === 0 && (
+                    <p className="text-xs text-emerald-700 font-medium">No students flagged as at-risk. Keep it up!</p>
+                  )}
+                  {atRiskLoaded && atRiskStudents.length > 0 && (
+                    <div className="space-y-2">
+                      {atRiskStudents.map((s) => {
+                        const riskBg = s.risk_label === "high" ? "bg-rose-100 text-rose-700 border-rose-200" : "bg-amber-100 text-amber-700 border-amber-200";
+                        return (
+                          <div key={s.student_id} className="flex items-center gap-3 rounded-xl bg-white border border-amber-100 px-4 py-3">
+                            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">
+                              {s.full_name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <button
+                                onClick={() => navigate(`/teacher/courses/${id}/students/${s.student_id}`)}
+                                className="text-sm font-semibold text-slate-900 hover:text-violet-700 hover:underline text-left truncate block"
+                              >
+                                {s.full_name}
+                              </button>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-slate-400">Progress: {Math.round(s.avg_progress)}%</span>
+                                <span className="text-[10px] text-slate-400">·</span>
+                                <span className="text-[10px] text-slate-400">Quiz avg: {s.avg_quiz_score > 0 ? `${Math.round(s.avg_quiz_score)}%` : "—"}</span>
+                              </div>
+                            </div>
+                            <div className="shrink-0 flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-700">{Math.round(s.risk_score * 100)}%</span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${riskBg}`}>{s.risk_label}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}

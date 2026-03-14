@@ -94,6 +94,56 @@ def course_analytics(
     )
     avg_quiz_score = float(avg_quiz_score) if avg_quiz_score is not None else None
 
+    # --- Quiz score distribution (5 buckets) ---
+    all_scores = (
+        db.query(QuizAttempt.score_pct)
+        .join(Quiz, Quiz.id == QuizAttempt.quiz_id)
+        .join(Lesson, Lesson.id == Quiz.lesson_id)
+        .join(Module, Module.id == Lesson.module_id)
+        .filter(Module.course_id == course_id, QuizAttempt.is_submitted == True)  # noqa: E712
+        .all()
+    )
+    buckets = {"0-20": 0, "21-40": 0, "41-60": 0, "61-80": 0, "81-100": 0}
+    for (score,) in all_scores:
+        if score is None:
+            continue
+        if score <= 20:
+            buckets["0-20"] += 1
+        elif score <= 40:
+            buckets["21-40"] += 1
+        elif score <= 60:
+            buckets["41-60"] += 1
+        elif score <= 80:
+            buckets["61-80"] += 1
+        else:
+            buckets["81-100"] += 1
+
+    # --- Per-lesson completion breakdown ---
+    modules_list = db.query(Module).filter(Module.course_id == course_id).order_by(Module.order_index).all()
+    module_map = {m.id: m.title for m in modules_list}
+    lessons_list = (
+        db.query(Lesson)
+        .filter(Lesson.module_id.in_([m.id for m in modules_list]))
+        .order_by(Lesson.order_index)
+        .all()
+    ) if modules_list else []
+
+    lesson_completion = []
+    for lesson in lessons_list:
+        completed = (
+            db.query(func.count(LessonProgress.id))
+            .filter(LessonProgress.lesson_id == lesson.id, LessonProgress.progress_pct >= 100)
+            .scalar()
+        ) or 0
+        lesson_completion.append({
+            "lesson_id": lesson.id,
+            "lesson_title": lesson.title,
+            "module_title": module_map.get(lesson.module_id, ""),
+            "completed": completed,
+            "total_students": enrollments,
+            "completion_rate": round(completed / enrollments * 100) if enrollments > 0 else 0,
+        })
+
     # --- Events stats ---
     events_total = (
         db.query(func.count(Event.id))
@@ -126,7 +176,9 @@ def course_analytics(
             "published": quizzes_published,
             "attempts_total": attempts_total,
             "avg_score_pct": avg_quiz_score,
+            "score_distribution": buckets,
         },
+        "lesson_completion": lesson_completion,
         "events": {
             "total": events_total,
             "by_type": events_by_type,
