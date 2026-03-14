@@ -11,6 +11,8 @@ type LiveQuestion = {
   correct_option?: string;
 };
 
+type WsStatus = "connecting" | "connected" | "disconnected" | "failed";
+
 function wsUrl(quizId: string): string {
   const token = getAccessToken() ?? "";
   const apiUrl = import.meta.env.VITE_API_URL ?? window.location.origin;
@@ -24,7 +26,7 @@ export default function StudentLiveQuiz() {
   const { quizId } = useParams();
   const navigate = useNavigate();
 
-  const [connected, setConnected] = useState(false);
+  const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
   const [question, setQuestion] = useState<LiveQuestion | null>(null);
   const [accepting, setAccepting] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -34,6 +36,9 @@ export default function StudentLiveQuiz() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retryRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionEndedRef = useRef(false);
 
   function clearCountdown() {
     if (countdownRef.current) {
@@ -43,13 +48,28 @@ export default function StudentLiveQuiz() {
     setCountdown(null);
   }
 
-  useEffect(() => {
+  function connectWs() {
     if (!quizId) return;
+    setWsStatus("connecting");
     const ws = new WebSocket(wsUrl(quizId));
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
+    ws.onopen = () => {
+      retryRef.current = 0;
+      setWsStatus("connected");
+    };
+
+    ws.onclose = () => {
+      if (sessionEndedRef.current) return;
+      if (retryRef.current >= 5) {
+        setWsStatus("failed");
+        return;
+      }
+      setWsStatus("disconnected");
+      retryRef.current += 1;
+      const delay = Math.min(1500 * retryRef.current, 10000);
+      retryTimerRef.current = setTimeout(connectWs, delay);
+    };
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data as string);
@@ -89,14 +109,22 @@ export default function StudentLiveQuiz() {
       }
 
       if (msg.event === "session_ended") {
+        sessionEndedRef.current = true;
         setSessionEnded(true);
         setFinalScore(msg.score_pct ?? null);
         clearCountdown();
       }
     };
+  }
 
-    return () => { ws.close(); clearCountdown(); };
-  }, [quizId]);
+  useEffect(() => {
+    connectWs();
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      wsRef.current?.close();
+      clearCountdown();
+    };
+  }, [quizId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function submitAnswer(opt: string) {
     if (!accepting || selected) return;
@@ -129,6 +157,13 @@ export default function StudentLiveQuiz() {
     ? finalScore >= 70 ? "text-emerald-300" : finalScore >= 50 ? "text-amber-300" : "text-rose-300"
     : "text-slate-300";
 
+  const statusConfig = {
+    connecting:   { dot: "bg-amber-400 animate-pulse", text: "text-amber-300",   bg: "bg-amber-500/20",  label: "Connecting…" },
+    connected:    { dot: "bg-emerald-400 animate-pulse", text: "text-emerald-300", bg: "bg-emerald-500/20", label: "Connected" },
+    disconnected: { dot: "bg-amber-400 animate-pulse", text: "text-amber-300",   bg: "bg-amber-500/20",  label: "Reconnecting…" },
+    failed:       { dot: "bg-rose-500",                text: "text-rose-300",    bg: "bg-rose-500/20",   label: "Connection lost" },
+  }[wsStatus];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex flex-col">
       {/* Header */}
@@ -147,10 +182,18 @@ export default function StudentLiveQuiz() {
               {countdown}s
             </div>
           )}
-          <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${connected ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-500/20 text-slate-400"}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-            {connected ? "Connected" : "Connecting…"}
+          <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${statusConfig.bg} ${statusConfig.text}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dot}`} />
+            {statusConfig.label}
           </div>
+          {wsStatus === "failed" && (
+            <button
+              onClick={() => { retryRef.current = 0; connectWs(); }}
+              className="text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-full hover:bg-rose-500/30"
+            >
+              Retry
+            </button>
+          )}
         </div>
       </div>
 
@@ -171,16 +214,54 @@ export default function StudentLiveQuiz() {
               Back to course
             </button>
           </div>
-        ) : !question ? (
-          <div className="text-center">
-            <div className="mx-auto mb-4 relative h-10 w-10">
-              <div className="absolute inset-0 rounded-full border-4 border-white/10" />
-              <div className="absolute inset-0 rounded-full border-4 border-sky-400 border-t-transparent animate-spin" />
-            </div>
-            <div className="text-lg font-semibold text-slate-300">Waiting for the teacher…</div>
-            <p className="text-xs text-slate-500 mt-2">Stay on this page — questions will appear automatically.</p>
+
+        ) : wsStatus === "failed" ? (
+          /* ── Connection failed state ── */
+          <div className="text-center space-y-4">
+            <div className="text-4xl">📡</div>
+            <div className="text-lg font-semibold text-slate-300">Unable to connect</div>
+            <p className="text-xs text-slate-500 max-w-xs">
+              Could not reach the live quiz server after several attempts. Check your connection and try again.
+            </p>
+            <button
+              onClick={() => { retryRef.current = 0; connectWs(); }}
+              className="rounded-xl bg-sky-600 hover:bg-sky-500 px-6 py-3 text-sm font-bold"
+            >
+              Reconnect
+            </button>
+            <button onClick={() => navigate(-1)} className="block mx-auto text-xs text-slate-500 hover:text-slate-300 underline">
+              Leave quiz
+            </button>
           </div>
+
+        ) : !question ? (
+          /* ── Waiting for teacher ── */
+          <div className="text-center">
+            {(wsStatus === "connecting" || wsStatus === "disconnected") ? (
+              <>
+                <div className="mx-auto mb-4 relative h-10 w-10">
+                  <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+                  <div className="absolute inset-0 rounded-full border-4 border-amber-400 border-t-transparent animate-spin" />
+                </div>
+                <div className="text-lg font-semibold text-slate-300">
+                  {wsStatus === "disconnected" ? "Reconnecting…" : "Connecting…"}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">Establishing live session…</p>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto mb-4 relative h-10 w-10">
+                  <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+                  <div className="absolute inset-0 rounded-full border-4 border-sky-400 border-t-transparent animate-spin" />
+                </div>
+                <div className="text-lg font-semibold text-slate-300">Waiting for the teacher…</div>
+                <p className="text-xs text-slate-500 mt-2">Stay on this page — questions will appear automatically.</p>
+              </>
+            )}
+          </div>
+
         ) : (
+          /* ── Active question ── */
           <div className="w-full max-w-xl space-y-5">
             {/* Countdown bar */}
             {countdown !== null && (
@@ -216,14 +297,14 @@ export default function StudentLiveQuiz() {
               ))}
             </div>
 
-            {/* Status */}
+            {/* Status line */}
             <div className="text-center text-xs text-slate-400">
               {!selected && accepting && "Tap an option to answer"}
               {selected && accepting && "Answer submitted — waiting for teacher to close…"}
               {!accepting && !correct && selected && "Waiting for results…"}
-              {correct && selected === correct && <span className="text-emerald-400 font-semibold">Correct!</span>}
-              {correct && selected !== correct && <span className="text-rose-400 font-semibold">Incorrect — correct answer was {correct}</span>}
-              {correct && !selected && <span className="text-slate-400">Time up. Correct: {correct}</span>}
+              {correct && selected === correct && <span className="text-emerald-400 font-semibold">Correct! 🎉</span>}
+              {correct && selected && selected !== correct && <span className="text-rose-400 font-semibold">Incorrect — correct answer was {correct}</span>}
+              {correct && !selected && <span className="text-slate-400">Time up. Correct answer: {correct}</span>}
             </div>
           </div>
         )}

@@ -13,7 +13,7 @@ type Question = {
   correct_option: string;
 };
 
-type QuizInfo = { id: number; title: string };
+type QuizInfo = { id: number; title: string; lesson_id?: number };
 
 const OPTS = ["A", "B", "C", "D"] as const;
 
@@ -26,14 +26,18 @@ function wsUrl(quizId: string): string {
   return `${base}/ws/quiz/${quizId}?token=${encodeURIComponent(token)}`;
 }
 
+type WsStatus = "connecting" | "connected" | "disconnected" | "failed";
+
 export default function TeacherLiveQuiz() {
   const { quizId } = useParams();
   const navigate = useNavigate();
 
   const [quiz, setQuiz] = useState<QuizInfo | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [currentIdx, setCurrentIdx] = useState(-1);
-  const [connected, setConnected] = useState(false);
+  const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
   const [participants, setParticipants] = useState(0);
   const [responded, setResponded] = useState(0);
   const [accepting, setAccepting] = useState(false);
@@ -46,24 +50,54 @@ export default function TeacherLiveQuiz() {
   const [correctOption, setCorrectOption] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retryRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Load quiz info + questions
   useEffect(() => {
     if (!quizId) return;
+    setQuestionsLoading(true);
+    setQuestionsError(null);
     Promise.all([
       api.get<QuizInfo>(`/api/v1/quizzes/${quizId}`),
       api.get<Question[]>(`/api/v1/quizzes/${quizId}/questions`),
-    ]).then(([qi, qs]) => {
-      setQuiz(qi.data);
-      setQuestions(qs.data || []);
-    }).catch(() => {});
+    ])
+      .then(([qi, qs]) => {
+        setQuiz(qi.data);
+        const list = Array.isArray(qs.data) ? qs.data : [];
+        setQuestions(list);
+      })
+      .catch((err) => {
+        const msg = err?.response?.data?.detail ?? "Failed to load quiz questions.";
+        setQuestionsError(String(msg));
+      })
+      .finally(() => setQuestionsLoading(false));
   }, [quizId]);
 
-  useEffect(() => {
+  // WebSocket with auto-reconnect
+  function connectWs() {
     if (!quizId) return;
     const ws = new WebSocket(wsUrl(quizId));
     wsRef.current = ws;
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
+    setWsStatus("connecting");
+
+    ws.onopen = () => {
+      retryRef.current = 0;
+      setWsStatus("connected");
+    };
+
+    ws.onclose = () => {
+      setWsStatus("disconnected");
+      if (sessionEnded) return;
+      if (retryRef.current >= 5) {
+        setWsStatus("failed");
+        return;
+      }
+      retryRef.current += 1;
+      const delay = Math.min(1500 * retryRef.current, 10000);
+      retryTimerRef.current = setTimeout(connectWs, delay);
+    };
+
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data as string);
       if (msg.event === "state") {
@@ -86,8 +120,15 @@ export default function TeacherLiveQuiz() {
         clearCountdown();
       }
     };
-    return () => ws.close();
-  }, [quizId]);
+  }
+
+  useEffect(() => {
+    connectWs();
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      wsRef.current?.close();
+    };
+  }, [quizId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function clearCountdown() {
     if (countdownRef.current) {
@@ -156,8 +197,17 @@ export default function TeacherLiveQuiz() {
     setSessionEnded(true);
   }
 
+  const connected = wsStatus === "connected";
   const current = questions[currentIdx];
   const totalAnswered = Object.values(liveCounts).reduce((a, b) => a + b, 0);
+
+  // Status badge config
+  const statusConfig = {
+    connecting: { dot: "bg-amber-400 animate-pulse", text: "text-amber-300", bg: "bg-amber-500/20", label: "Connecting…" },
+    connected:  { dot: "bg-emerald-400 animate-pulse", text: "text-emerald-300", bg: "bg-emerald-500/20", label: "Live" },
+    disconnected: { dot: "bg-amber-400 animate-pulse", text: "text-amber-300", bg: "bg-amber-500/20", label: "Reconnecting…" },
+    failed: { dot: "bg-rose-500", text: "text-rose-300", bg: "bg-rose-500/20", label: "Disconnected" },
+  }[wsStatus];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-violet-950 to-slate-900 text-white">
@@ -180,10 +230,18 @@ export default function TeacherLiveQuiz() {
               {countdown}s
             </div>
           )}
-          <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${connected ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-500/20 text-slate-400"}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-            {connected ? "Live" : "Connecting…"}
+          <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${statusConfig.bg} ${statusConfig.text}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusConfig.dot}`} />
+            {statusConfig.label}
           </div>
+          {wsStatus === "failed" && (
+            <button
+              onClick={() => { retryRef.current = 0; connectWs(); }}
+              className="text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded-full hover:bg-rose-500/30"
+            >
+              Retry
+            </button>
+          )}
           <div className="text-xs bg-white/10 px-2.5 py-1 rounded-full">{participants} student{participants !== 1 ? "s" : ""} online</div>
         </div>
       </div>
@@ -202,7 +260,16 @@ export default function TeacherLiveQuiz() {
           <div className="max-w-md mx-auto mt-16 space-y-6 text-center">
             <div>
               <div className="text-2xl font-bold">{quiz?.title ?? "Live Quiz"}</div>
-              <p className="text-slate-400 text-sm mt-1">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
+              {questionsLoading ? (
+                <p className="text-slate-400 text-sm mt-1 flex items-center justify-center gap-2">
+                  <span className="h-3 w-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin inline-block" />
+                  Loading questions…
+                </p>
+              ) : questionsError ? (
+                <p className="text-rose-400 text-sm mt-1">{questionsError}</p>
+              ) : (
+                <p className="text-slate-400 text-sm mt-1">{questions.length} question{questions.length !== 1 ? "s" : ""}</p>
+              )}
             </div>
 
             <div className="rounded-2xl bg-white/5 border border-white/10 px-8 py-6">
@@ -234,13 +301,32 @@ export default function TeacherLiveQuiz() {
 
             <button
               onClick={() => { applyTimeLimit(); setSessionStarted(true); }}
-              disabled={!connected || questions.length === 0}
+              disabled={!connected || questions.length === 0 || questionsLoading}
               className="w-full rounded-2xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-6 py-4 text-base font-bold transition"
             >
-              Start Quiz
+              {questionsLoading ? "Loading…" : "Start Quiz"}
             </button>
-            {questions.length === 0 && (
-              <p className="text-xs text-rose-400">This quiz has no questions yet. Go back and add questions first.</p>
+
+            {!questionsLoading && questions.length === 0 && !questionsError && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-left">
+                <p className="text-xs text-amber-300 font-semibold mb-2">This quiz has no questions yet.</p>
+                <p className="text-xs text-amber-200/70 mb-3">Go back to the course and add questions to this quiz before going live.</p>
+                <button
+                  onClick={() => navigate(-1)}
+                  className="rounded-lg bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/30"
+                >
+                  ← Go back and add questions
+                </button>
+              </div>
+            )}
+
+            {wsStatus === "failed" && (
+              <p className="text-xs text-rose-400">
+                Unable to connect to live session.{" "}
+                <button onClick={() => { retryRef.current = 0; connectWs(); }} className="underline">
+                  Try again
+                </button>
+              </p>
             )}
           </div>
         ) : (
@@ -295,7 +381,7 @@ export default function TeacherLiveQuiz() {
               {currentIdx === -1 ? (
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-12 text-center">
                   <div className="text-3xl mb-3">👈</div>
-                  <div className="text-sm font-semibold text-slate-300">Click a question to push it live</div>
+                  <div className="text-sm font-semibold text-slate-300">Click a question on the left to push it live</div>
                   <p className="text-xs text-slate-500 mt-1">Students will see it instantly on their screen.</p>
                 </div>
               ) : current ? (
@@ -311,7 +397,7 @@ export default function TeacherLiveQuiz() {
                         </span>
                       )}
                       {!accepting && correctOption && (
-                        <span className="text-xs text-emerald-400 font-semibold">Correct: {correctOption}</span>
+                        <span className="text-xs text-emerald-400 font-semibold">✓ Correct: {correctOption}</span>
                       )}
                       {countdown !== null && (
                         <span className={`ml-auto text-sm font-black px-3 py-0.5 rounded-full ${countdown <= 5 ? "bg-rose-500/40 text-rose-200 animate-pulse" : "bg-amber-500/20 text-amber-300"}`}>

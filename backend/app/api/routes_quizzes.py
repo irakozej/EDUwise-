@@ -200,6 +200,20 @@ def list_quizzes_for_lesson(
     return [_quiz_out(q) for q in quizzes]
 
 
+@router.get("/quizzes/{quiz_id}", response_model=QuizOut)
+def get_quiz(
+    quiz_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(404, "Quiz not found")
+    if user.role == UserRole.student and not quiz.is_published:
+        raise HTTPException(403, "Quiz not published")
+    return _quiz_out(quiz)
+
+
 @router.get("/quizzes/{quiz_id}/questions", response_model=list[QuestionOut])
 def list_questions(
     quiz_id: int,
